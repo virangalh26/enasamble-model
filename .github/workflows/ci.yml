@@ -4,6 +4,9 @@ on:
   push:
     branches: [main]
   pull_request:
+  # Manual "Run workflow" button, e.g. if GitHub ever misses a push event. A successful run on main
+  # also triggers Deploy, exactly like a push.
+  workflow_dispatch:
 
 jobs:
   test:
