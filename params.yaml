@@ -1,0 +1,13 @@
+# Pipeline parameters tracked by DVC (`dvc params diff` compares them between versions).
+data:
+  export_threshold_kwh: 1.0   # a household "has solar" if it exported more than this
+  first_export_kwh: 0.1       # a day with more export than this marks the system as installed
+  min_steps_per_day: 90       # of 96 fifteen-minute readings; fewer = incomplete day, dropped
+
+train:
+  trials: 15                  # Optuna trials per tuned model family
+  tune_households: 0.25       # share of training households used for the hyperparameter search
+
+quality_gate:
+  min_hh_accuracy: 0.985      # a new model must reach at least this held-out household accuracy
+  max_drop: 0.003             # and may not be worse than the current model by more than this

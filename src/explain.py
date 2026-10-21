@@ -56,7 +56,7 @@ def main():
     ap.add_argument("--data", default="data/processed/household_days.parquet")
     ap.add_argument("--model", default="models/solar_detector.joblib")
     ap.add_argument("--reports", default="reports")
-    ap.add_argument("--out", default="reports/figures")
+    ap.add_argument("--out", default="reports/explain")
     ap.add_argument("--sample", type=int, default=3000)
     a = ap.parse_args()
     out = Path(a.out)
@@ -74,7 +74,7 @@ def main():
     Xs = Xte.iloc[idx]
 
     w = stack_weights(det)
-    w.to_csv(Path(a.reports) / "stacking_weights.csv")
+    w.to_csv(out / "stacking_weights.csv")
     print("Stacking meta-learner weights:\n", w.round(3))
 
     # Global SHAP on the LightGBM base learner.
@@ -95,7 +95,7 @@ def main():
             plt.tight_layout(); plt.savefig(out / f"shap_dependence_{feat}.png", dpi=130, bbox_inches="tight")
             plt.close("all")
     mean_abs = pd.Series(np.abs(sv.values).mean(0), index=Xs.columns).sort_values(ascending=False)
-    mean_abs.to_csv(Path(a.reports) / "shap_importance_lightgbm.csv")
+    mean_abs.to_csv(out / "shap_importance_lightgbm.csv")
 
     # SHAP on the full ensemble (model-agnostic, smaller sample) to confirm the same drivers.
     f = lambda x: det.day_model.predict_proba(pd.DataFrame(x, columns=Xs.columns))[:, 1]
@@ -103,7 +103,7 @@ def main():
     ens = shap.PermutationExplainer(f, bg)
     sv_ens = ens(Xs.iloc[:200], max_evals=2 * Xs.shape[1] + 1)
     ens_imp = pd.Series(np.abs(sv_ens.values).mean(0), index=Xs.columns).sort_values(ascending=False)
-    ens_imp.to_csv(Path(a.reports) / "shap_importance_ensemble.csv")
+    ens_imp.to_csv(out / "shap_importance_ensemble.csv")
     plt.figure()
     shap.plots.bar(sv_ens, max_display=15, show=False)
     plt.title("Mean |SHAP| — full stacking ensemble (200 test days)")
@@ -131,7 +131,7 @@ def main():
         for rule, weight in exp.as_list(label=1):
             lime_rows.append({"case": name, "hh": te.hh[i], "day": str(te.day[i].date()), "true": int(te.solar_installed[i]),
                               "p_solar": float(p[i]), "rule": rule, "weight": weight})
-    pd.DataFrame(lime_rows).to_csv(Path(a.reports) / "lime_explanations.csv", index=False)
+    pd.DataFrame(lime_rows).to_csv(out / "lime_explanations.csv", index=False)
     print("Top SHAP features (LightGBM):\n", mean_abs.head(10).round(4))
     print("Top SHAP features (ensemble):\n", ens_imp.head(10).round(4))
 

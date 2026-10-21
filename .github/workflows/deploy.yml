@@ -1,0 +1,101 @@
+name: Deploy
+
+# Continuous delivery: after CI passes on main, build the app image, push it to Azure Container Registry,
+# roll it out to Azure Container Apps, check the live app, and record the deployed model in the Azure ML registry.
+# Rollback: Actions -> Deploy -> Run workflow, and enter an earlier image tag (a short commit SHA).
+# Azure login uses GitHub OIDC with a managed identity: no passwords or keys are stored anywhere.
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: "Redeploy an existing image tag (rollback). Leave empty to build and deploy the latest main."
+        required: false
+        default: ""
+
+permissions:
+  id-token: write
+  contents: read
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+    environment:
+      name: production
+      url: ${{ steps.rollout.outputs.url }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+
+      - name: Load Azure settings
+        run: grep -E '^[A-Z_]+=' infra/azure.env >> "$GITHUB_ENV"
+
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ env.AZURE_CLIENT_ID }}
+          tenant-id: ${{ env.AZURE_TENANT_ID }}
+          subscription-id: ${{ env.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Choose image tag
+        run: |
+          if [ -n "${{ inputs.image_tag }}" ]; then
+            TAG="${{ inputs.image_tag }}"
+            az acr repository show-tags -n "$ACR_NAME" --repository solar-detector -o tsv | grep -qx "$TAG" \
+              || { echo "::error::Image tag $TAG not found in $ACR_NAME"; exit 1; }
+            echo "BUILD=false" >> "$GITHUB_ENV"
+          else
+            TAG="$(git rev-parse --short=7 HEAD)"
+            echo "BUILD=true" >> "$GITHUB_ENV"
+          fi
+          echo "TAG=$TAG" >> "$GITHUB_ENV"
+          echo "IMAGE=$ACR_NAME.azurecr.io/solar-detector:$TAG" >> "$GITHUB_ENV"
+
+      - name: Build and push image
+        if: env.BUILD == 'true'
+        run: |
+          az acr login -n "$ACR_NAME"
+          docker build -t "$IMAGE" .
+          docker push "$IMAGE"
+
+      - name: Roll out to Azure Container Apps
+        id: rollout
+        run: |
+          az config set extension.use_dynamic_install=yes_without_prompt >/dev/null
+          az containerapp ingress update -g "$RESOURCE_GROUP" -n "$CONTAINERAPP_NAME" --target-port 8501 -o none
+          az containerapp update -g "$RESOURCE_GROUP" -n "$CONTAINERAPP_NAME" --image "$IMAGE" \
+            --set-env-vars MODEL_IMAGE_TAG="$TAG" -o none
+          FQDN="$(az containerapp show -g "$RESOURCE_GROUP" -n "$CONTAINERAPP_NAME" --query properties.configuration.ingress.fqdn -o tsv)"
+          echo "url=https://$FQDN" >> "$GITHUB_OUTPUT"
+          echo "APP_URL=https://$FQDN" >> "$GITHUB_ENV"
+
+      - name: Check the live app (allows for a cold start)
+        run: |
+          for i in $(seq 1 40); do
+            if curl -fsS --max-time 20 "$APP_URL/_stcore/health"; then
+              echo; echo "### Deployed \`$TAG\` → $APP_URL" >> "$GITHUB_STEP_SUMMARY"; exit 0
+            fi
+            sleep 15
+          done
+          echo "::error::App did not become healthy"; exit 1
+
+      - uses: actions/setup-python@v5
+        if: env.BUILD == 'true'
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Record the deployed model in the Azure ML registry
+        if: env.BUILD == 'true'
+        run: |
+          pip install -r requirements-app.txt -r requirements-mlops.txt
+          python -m src.track --stage production --image-tag "$TAG" --git-sha "$(git rev-parse HEAD)"

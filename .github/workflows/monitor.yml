@@ -1,0 +1,56 @@
+name: Monitor
+
+# Daily production check: is the live app up, which version is running, and how is it being used?
+# Prediction events are logged by the app (one JSON line each, no personal data) and collected
+# by Log Analytics; this job summarises the last 7 days.
+
+on:
+  schedule:
+    - cron: "30 2 * * *"   # every day 02:30 UTC (08:00 in Sri Lanka)
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  monitor:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Load Azure settings
+        run: grep -E '^[A-Z_]+=' infra/azure.env >> "$GITHUB_ENV"
+
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ env.AZURE_CLIENT_ID }}
+          tenant-id: ${{ env.AZURE_TENANT_ID }}
+          subscription-id: ${{ env.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Uptime (allows for a cold start)
+        run: |
+          az config set extension.use_dynamic_install=yes_without_prompt >/dev/null
+          FQDN="$(az containerapp show -g "$RESOURCE_GROUP" -n "$CONTAINERAPP_NAME" --query properties.configuration.ingress.fqdn -o tsv)"
+          IMAGE="$(az containerapp show -g "$RESOURCE_GROUP" -n "$CONTAINERAPP_NAME" --query 'properties.template.containers[0].image' -o tsv)"
+          for i in $(seq 1 20); do
+            if curl -fsS --max-time 20 "https://$FQDN/_stcore/health"; then
+              echo "### ✅ App is up — https://$FQDN (image \`${IMAGE##*:}\`)" >> "$GITHUB_STEP_SUMMARY"; exit 0
+            fi
+            sleep 15
+          done
+          echo "### ❌ App is DOWN — https://$FQDN" >> "$GITHUB_STEP_SUMMARY"; exit 1
+
+      - name: Usage and prediction summary (last 7 days)
+        if: always()
+        run: |
+          WS="$(az monitor log-analytics workspace show -g "$RESOURCE_GROUP" -n log-solar-detector --query customerId -o tsv)"
+          QUERY='ContainerAppConsoleLogs_CL
+            | where TimeGenerated > ago(7d) and Log_s has "\"event\": \"prediction\""
+            | extend e = parse_json(Log_s)
+            | summarize predictions = count(), solar_share = round(avg(todouble(e.verdict)), 3),
+                        mean_p_solar = round(avg(todouble(e.p_solar)), 3) by mode = tostring(e.mode), version = tostring(e.model_version)'
+          {
+            echo "### Predictions in the last 7 days"
+            az monitor log-analytics query -w "$WS" --analytics-query "$QUERY" -o table || echo "(no prediction logs yet)"
+          } >> "$GITHUB_STEP_SUMMARY"

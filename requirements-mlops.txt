@@ -1,0 +1,7 @@
+# MLOps tooling: data versioning (DVC on Azure Blob) and experiment tracking / model registry (MLflow on Azure ML).
+dvc==3.67.1
+dvc-azure==3.1.1
+mlflow-skinny==2.22.5
+azureml-mlflow==1.62.0.post6
+azure-identity==1.26.0
+PyYAML==6.0.3

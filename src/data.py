@@ -8,6 +8,7 @@ Usage:
 """
 import argparse
 import zipfile
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -91,13 +92,14 @@ def readings_to_days(readings: pd.DataFrame, min_steps: int = MIN_STEPS_PER_DAY)
     return hd.reset_index().drop(columns=["export_kwh_day"])
 
 
-def build(zip_path: str) -> pd.DataFrame:
+def build(zip_path: str, export_threshold_kwh: float = EXPORT_THRESHOLD_KWH,
+          first_export_kwh: float = FIRST_EXPORT_KWH, min_steps_per_day: int = MIN_STEPS_PER_DAY) -> pd.DataFrame:
     days, exports = [], []
     with zipfile.ZipFile(zip_path) as zf:
         for member in MEMBERS:
             print(f"Reading {member}", flush=True)
             steps = to_steps(read_member(zf, member))
-            hd, ex = household_days(steps)
+            hd, ex = household_days(steps, min_steps=min_steps_per_day)
             del steps
             days.append(hd)
             exports.append(ex)
@@ -111,12 +113,12 @@ def build(zip_path: str) -> pd.DataFrame:
     exp = exp.groupby("hh")[["export_kwh", "export_steps"]].sum()
 
     # The label comes only from the export register; it never enters the feature matrix.
-    exp["has_solar"] = (exp["export_kwh"] > EXPORT_THRESHOLD_KWH).astype("int8")
+    exp["has_solar"] = (exp["export_kwh"] > export_threshold_kwh).astype("int8")
     hd = hd.merge(exp, left_on="hh", right_index=True, how="left")
     hd["has_solar"] = hd["has_solar"].fillna(0).astype("int8")
     # Some households install solar part-way through the 15 months. A day counts as "solar installed"
     # from the first day the meter exported energy; earlier days of the same household are non-solar.
-    first_export = hd[hd["export_kwh_day"] > FIRST_EXPORT_KWH].groupby("hh")["day"].min()
+    first_export = hd[hd["export_kwh_day"] > first_export_kwh].groupby("hh")["day"].min()
     hd["first_export_day"] = hd["hh"].map(first_export)
     hd["solar_installed"] = ((hd["has_solar"] == 1) & (hd["day"] >= hd["first_export_day"])).astype("int8")
     # Evaluation unit: a household-period with a constant label (one or two per household).
@@ -131,8 +133,13 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--zip", default="data/raw/recon_sl.zip")
     ap.add_argument("--out", default="data/processed/household_days.parquet")
+    ap.add_argument("--params", default="params.yaml")
     a = ap.parse_args()
-    hd = build(a.zip)
+    params = {}
+    if Path(a.params).exists():
+        import yaml
+        params = yaml.safe_load(open(a.params)).get("data", {})
+    hd = build(a.zip, **params)
     hd.to_parquet(a.out, index=False)
     hh = hd.groupby("hh")["has_solar"].first()
     print(f"Saved {len(hd):,} household-days for {len(hh):,} households "

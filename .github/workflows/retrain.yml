@@ -1,0 +1,104 @@
+name: Retrain
+
+# Continuous training: reproduce the DVC pipeline (data -> features -> ensemble -> explanations),
+# check data drift, compare the new model with the current one (quality gate), log everything to
+# MLflow on Azure ML as a "candidate", version the data in Azure Blob (DVC), and push the result to a
+# branch `retrain/<run>` for review. Merging that branch into main deploys the new model.
+
+on:
+  workflow_dispatch:
+    inputs:
+      trials:
+        description: "Optuna trials per model family"
+        required: false
+        default: "10"
+      redownload:
+        description: "Download the dataset again from Kaggle (otherwise the DVC-versioned copy is used)"
+        type: boolean
+        default: false
+
+permissions:
+  id-token: write
+  contents: write
+
+jobs:
+  retrain:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt -r requirements-mlops.txt
+
+      - name: Load Azure settings
+        run: grep -E '^[A-Z_]+=' infra/azure.env >> "$GITHUB_ENV"
+
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ env.AZURE_CLIENT_ID }}
+          tenant-id: ${{ env.AZURE_TENANT_ID }}
+          subscription-id: ${{ env.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Keep the current model's metrics and drift reference
+        run: |
+          cp reports/metrics.json /tmp/baseline_metrics.json
+          cp models/reference_stats.json /tmp/baseline_reference.json
+
+      - name: Get versioned data from Azure Blob (DVC)
+        run: |
+          if [ "${{ inputs.redownload }}" = "true" ]; then
+            dvc repro -f download
+          else
+            dvc pull download build || dvc repro download
+          fi
+
+      - name: Retrain (DVC pipeline)
+        run: |
+          python - <<'EOF'
+          import yaml
+          p = yaml.safe_load(open("params.yaml"))
+          p["train"]["trials"] = int("${{ inputs.trials }}")
+          yaml.safe_dump(p, open("params.yaml", "w"), sort_keys=False)
+          EOF
+          dvc repro build
+          dvc repro -f train
+          dvc repro explain
+          dvc params diff main --md >> "$GITHUB_STEP_SUMMARY" || true
+          dvc metrics diff main --md >> "$GITHUB_STEP_SUMMARY" || true
+
+      - name: Tests
+        run: pytest -q
+
+      - name: Data drift (new data vs. the current model's training data)
+        run: python -m src.drift --reference /tmp/baseline_reference.json
+
+      - name: Quality gate
+        run: python -m src.quality_gate --baseline /tmp/baseline_metrics.json
+
+      - name: Log run and register candidate model (MLflow on Azure ML)
+        run: python -m src.track --stage candidate --git-sha "$GITHUB_SHA"
+
+      - name: Version the data in Azure Blob (DVC)
+        run: dvc push
+
+      - name: Push the retrained model to a review branch
+        run: |
+          BRANCH="retrain/${{ github.run_number }}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -b "$BRANCH"
+          git add params.yaml dvc.lock models reports
+          git commit -m "Retrained model (run ${{ github.run_number }}, trials=${{ inputs.trials }})"
+          git push origin "$BRANCH"
+          {
+            echo "### Next step"
+            echo "Review the metrics above, then open a pull request:"
+            echo "https://github.com/${{ github.repository }}/compare/main...$BRANCH?expand=1"
+            echo "Merging it into main deploys the new model."
+          } >> "$GITHUB_STEP_SUMMARY"

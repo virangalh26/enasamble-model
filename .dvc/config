@@ -1,0 +1,6 @@
+[core]
+    remote = azure
+    autostage = false
+['remote "azure"']
+    url = azure://dvc
+    account_name = stsolar99c8f7

@@ -3,8 +3,11 @@
 Run locally:
     streamlit run app/streamlit_app.py
 """
+import hashlib
 import json
+import os
 import sys
+import time
 from pathlib import Path
 
 import joblib
@@ -24,6 +27,8 @@ from src.features import HOURS, make_features  # noqa: E402
 MODEL_PATH = ROOT / "models" / "solar_detector.joblib"
 META_PATH = ROOT / "models" / "metadata.json"
 SAMPLE_CSV = ROOT / "app" / "sample_meter_readings.csv"
+# Set by the Deploy workflow: the image tag (git commit) of the running version.
+MODEL_VERSION = os.environ.get("MODEL_IMAGE_TAG", "local")
 
 # Median hourly import (kWh) per class in the RECON-SL training households, used as starting points for the
 # single-day form. Medians, not means: on a sunny day a solar home imports exactly zero at midday, which an
@@ -91,6 +96,21 @@ def profile_chart(values, title):
 
 
 detector, meta = load_model()
+
+
+def log_prediction(mode: str, p_solar: float, n_days: int, inputs) -> None:
+    """One JSON line per new prediction on stdout -> Container Apps -> Log Analytics (monitoring).
+
+    Only the score and counts are logged, never the uploaded readings. Streamlit reruns the script on every
+    interaction, so a hash of the inputs prevents logging the same prediction twice.
+    """
+    key = hashlib.sha1(repr(inputs).encode()).hexdigest()
+    if st.session_state.get(f"logged-{mode}") == key:
+        return
+    st.session_state[f"logged-{mode}"] = key
+    print(json.dumps({"event": "prediction", "mode": mode, "p_solar": round(p_solar, 4), "n_days": n_days,
+                      "verdict": int(p_solar >= meta["threshold"]), "model_version": MODEL_VERSION,
+                      "ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}), flush=True)
 test = meta["test_households"]
 
 st.title("☀️ Rooftop Solar Detector")
@@ -105,6 +125,7 @@ with st.sidebar:
     st.metric("Household accuracy (held-out test)", f"{test['hh_accuracy']:.2%}")
     st.metric("Errors on test households", f"{test['hh_errors']} / {test['hh_n']}")
     st.metric("Household AUC", f"{test['hh_auc']:.4f}")
+    st.caption(f"Model version `{MODEL_VERSION}` · trained {meta.get('trained_at', '2026-10-20')[:10]}")
     st.caption(f"Decision threshold {meta['threshold']:.2f}, chosen on training households only. "
                "Export readings are never used as inputs.")
 
@@ -122,6 +143,7 @@ with tab1:
     day = pd.DataFrame([values], columns=HOURS)
     X = detector.features(day)
     p = float(detector.day_model.predict_proba(X)[:, 1][0])
+    log_prediction("day", p, 1, values)
 
     c1, c2 = st.columns([1, 2])
     with c1:
@@ -165,6 +187,7 @@ with tab2:
             else:
                 days["p_solar"] = detector.predict_day_proba(days)
                 hh_p = days["p_solar"].mean()
+                log_prediction("household", float(hh_p), len(days), days["p_solar"].round(6).tolist())
                 verdict = "Solar installed" if hh_p >= meta["threshold"] else "No solar"
                 (st.success if hh_p >= meta["threshold"] else st.info)(
                     f"**{verdict}** — mean P(solar) over {len(days)} complete days = {hh_p:.1%}")

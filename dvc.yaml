@@ -1,0 +1,64 @@
+# Reproducible pipeline: raw data -> household-days -> trained ensemble -> explanations.
+# `dvc repro` reruns only the stages whose code, data or parameters changed; `dvc.lock` records
+# the exact hashes, so every model can be traced to the data and code that produced it.
+stages:
+  download:
+    cmd: python -m src.download --out data/raw/recon_sl.zip
+    deps:
+      - src/download.py
+    outs:
+      - data/raw/recon_sl.zip
+
+  build:
+    cmd: python -m src.data --zip data/raw/recon_sl.zip --out data/processed/household_days.parquet
+    deps:
+      - data/raw/recon_sl.zip
+      - src/data.py
+      - src/features.py
+    params:
+      - data
+    outs:
+      - data/processed/household_days.parquet
+
+  train:
+    cmd: python -m src.train --trials ${train.trials} --tune-households ${train.tune_households}
+    deps:
+      - data/processed/household_days.parquet
+      - src/train.py
+      - src/features.py
+      - src/model.py
+      - src/drift.py
+    params:
+      - train
+    outs:
+      # The model stays in git (cache: false) so CI/CD can build the app image without Azure access.
+      - models/solar_detector.joblib:
+          cache: false
+      - models/metadata.json:
+          cache: false
+      - models/reference_stats.json:
+          cache: false
+      - reports/split.json:
+          cache: false
+      - reports/best_params.json:
+          cache: false
+      - reports/model_comparison.csv:
+          cache: false
+      - reports/test_household_predictions.csv:
+          cache: false
+      - reports/test_day_predictions.parquet:
+          cache: false
+    metrics:
+      - reports/metrics.json:
+          cache: false
+
+  explain:
+    cmd: python -m src.explain
+    deps:
+      - models/solar_detector.joblib
+      - data/processed/household_days.parquet
+      - reports/split.json
+      - src/explain.py
+    outs:
+      - reports/explain:
+          cache: false

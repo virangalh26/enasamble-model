@@ -31,6 +31,7 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.tree import DecisionTreeClassifier
 from xgboost import XGBClassifier
 
+from src.drift import reference_stats
 from src.features import FEATURE_NAMES, HOURS, make_features
 from src.model import SolarDetector
 
@@ -288,9 +289,18 @@ def main():
     json.dump({"model": "Stacking ensemble (LightGBM, XGBoost, CatBoost, Extra Trees -> Logistic Regression)",
                "threshold": thr, "features": FEATURE_NAMES, "hours": HOURS,
                "cv_train_households": final_cv, "test_households": final_te,
-               "export_threshold_kwh": 1.0, "minutes": round((time.time() - t0) / 60, 1)},
+               "export_threshold_kwh": 1.0, "minutes": round((time.time() - t0) / 60, 1),
+               "trained_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())},
               open(models_dir / "metadata.json", "w"), indent=2, default=float)
+    write_tracking_files(final_cv, final_te, thr, Xtr, models_dir, reports_dir)
     print(f"Done in {(time.time() - t0) / 60:.1f} min")
+
+
+def write_tracking_files(cv_scores, test_scores, threshold, X_train, models_dir, reports_dir):
+    """Metrics for `dvc metrics diff` / the quality gate, and drift reference statistics."""
+    json.dump({"threshold": threshold, "cv": cv_scores, "test": test_scores},
+              open(Path(reports_dir) / "metrics.json", "w"), indent=2, default=float)
+    json.dump(reference_stats(X_train), open(Path(models_dir) / "reference_stats.json", "w"), indent=2)
 
 
 if __name__ == "__main__":

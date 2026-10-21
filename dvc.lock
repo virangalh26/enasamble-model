@@ -1,0 +1,131 @@
+schema: '2.0'
+stages:
+  download:
+    cmd: python -m src.download --out data/raw/recon_sl.zip
+    deps:
+    - path: src/download.py
+      hash: md5
+      md5: 1d10af315547c1b8e26432e93ff87133
+      size: 1035
+    outs:
+    - path: data/raw/recon_sl.zip
+      hash: md5
+      md5: 1b8082eef5c5e10292aa2e6bb5d35eab
+      size: 1174329638
+  build:
+    cmd: python -m src.data --zip data/raw/recon_sl.zip --out 
+      data/processed/household_days.parquet
+    deps:
+    - path: data/raw/recon_sl.zip
+      hash: md5
+      md5: 1b8082eef5c5e10292aa2e6bb5d35eab
+      size: 1174329638
+    - path: src/data.py
+      hash: md5
+      md5: 0c91def2d11472e2795b82e577676c01
+      size: 7316
+    - path: src/features.py
+      hash: md5
+      md5: 4bd9a522b586727a5f4ecdbacbb7421e
+      size: 2358
+    params:
+      params.yaml:
+        data:
+          export_threshold_kwh: 1.0
+          first_export_kwh: 0.1
+          min_steps_per_day: 90
+    outs:
+    - path: data/processed/household_days.parquet
+      hash: md5
+      md5: 0caf01b3eed6e36e30f0da963c6d8c8d
+      size: 18915701
+  train:
+    cmd: python -m src.train --trials 15 --tune-households 0.25
+    deps:
+    - path: data/processed/household_days.parquet
+      hash: md5
+      md5: 0caf01b3eed6e36e30f0da963c6d8c8d
+      size: 18915701
+    - path: src/drift.py
+      hash: md5
+      md5: f09bcf35dc427d9b623afe3d54181929
+      size: 2756
+    - path: src/features.py
+      hash: md5
+      md5: 4bd9a522b586727a5f4ecdbacbb7421e
+      size: 2358
+    - path: src/model.py
+      hash: md5
+      md5: 86336f4a8602c6ca039c0061a647374c
+      size: 1227
+    - path: src/train.py
+      hash: md5
+      md5: f082e958df879c8970ec942a2d3ffd6a
+      size: 16589
+    params:
+      params.yaml:
+        train:
+          trials: 15
+          tune_households: 0.25
+    outs:
+    - path: models/metadata.json
+      hash: md5
+      md5: 669ea8647d542bb5d385d6420992fdfb
+      size: 2299
+    - path: models/reference_stats.json
+      hash: md5
+      md5: 6b644e4ebe7a9f031bf82418fcd95bf2
+      size: 3931
+    - path: models/solar_detector.joblib
+      hash: md5
+      md5: 5ad0a03d93b0f59a3c6afddd1587ceb7
+      size: 65976293
+    - path: reports/best_params.json
+      hash: md5
+      md5: 5eb9f88361368f7451a3ceb4a7e72435
+      size: 782
+    - path: reports/metrics.json
+      hash: md5
+      md5: c125c37b14132a22314e40b16cdf3c42
+      size: 710
+    - path: reports/model_comparison.csv
+      hash: md5
+      md5: 44c1127077bd639f01b06f66a50ec7fc
+      size: 5522
+    - path: reports/split.json
+      hash: md5
+      md5: 3bd6628c34929930686ff5f8b1a82b34
+      size: 29293
+    - path: reports/test_day_predictions.parquet
+      hash: md5
+      md5: 31d2f2efd02daa37db46ea17224744e3
+      size: 896979
+    - path: reports/test_household_predictions.csv
+      hash: md5
+      md5: c1979e6e86d14efdadadac34c15e388d
+      size: 31842
+  explain:
+    cmd: python -m src.explain
+    deps:
+    - path: data/processed/household_days.parquet
+      hash: md5
+      md5: 0caf01b3eed6e36e30f0da963c6d8c8d
+      size: 18915701
+    - path: models/solar_detector.joblib
+      hash: md5
+      md5: 5ad0a03d93b0f59a3c6afddd1587ceb7
+      size: 65976293
+    - path: reports/split.json
+      hash: md5
+      md5: 3bd6628c34929930686ff5f8b1a82b34
+      size: 29293
+    - path: src/explain.py
+      hash: md5
+      md5: fd48d0a47f82b59daff6495c39754eea
+      size: 6455
+    outs:
+    - path: reports/explain
+      hash: md5
+      md5: c1f5b752fc1648ade983d8ea15475c4f.dir
+      size: 811523
+      nfiles: 16

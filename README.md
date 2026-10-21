@@ -95,38 +95,45 @@ system never exports). We report the honest held-out score rather than tuning to
 ## 5. Project layout
 
 ```
-src/        data.py (pipeline) · features.py · model.py (household detector) · train.py · explain.py
+src/        download.py · data.py (pipeline) · features.py · model.py · train.py · explain.py
+            drift.py (PSI monitoring) · quality_gate.py · track.py (MLflow/Azure ML) · mlflow_model.py
 notebooks/  01_eda.ipynb · 02_modelling_and_explainability.ipynb   (executed, with outputs)
 app/        streamlit_app.py · sample_meter_readings.csv
-models/     solar_detector.joblib (stacking ensemble + threshold) · metadata.json
-reports/    model_comparison.csv · best_params.json · test predictions · SHAP/LIME outputs · figures/
-tests/      feature pipeline + saved-model behaviour tests
-.github/    ci.yml (tests + Docker build/health check) · deploy-azure.yml (ACR → Azure Web App)
+models/     solar_detector.joblib (stacking ensemble + threshold) · metadata.json · reference_stats.json
+reports/    metrics.json · model_comparison.csv · best_params.json · test predictions · explain/ · figures/
+dvc.yaml    pipeline stages (download → build → train → explain) · params.yaml · dvc.lock
+infra/      azure_setup.sh (creates all Azure resources) · azure.env (resource names/IDs, no secrets)
+tests/      features, saved-model behaviour, drift and quality-gate tests
+.github/    ci.yml · deploy.yml · retrain.yml · monitor.yml
+MAINTENANCE.md  runbook: retrain, roll back, monitor, costs, clean-up
 ```
 
 ## 6. Reproduce
 
 ```bash
 python -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
-# download the RECON-SL zip from Kaggle into data/raw/recon_sl.zip, then:
-python -m src.data            # ~1 min  → data/processed/household_days.parquet
-python -m src.train           # ~50 min → models/, reports/
-python -m src.explain         # ~10 min → SHAP/LIME figures
+pip install -r requirements.txt -r requirements-mlops.txt
+dvc repro            # download → build (~1 min) → train (~50 min) → explain (~10 min); reruns only what changed
 pytest -q
 streamlit run app/streamlit_app.py
 ```
 
 ## 7. MLOps
 
-* **Versioned pipeline** — data build, training and explanation are scripts with fixed seeds; results, parameters and
-  splits are saved under `reports/` and `models/metadata.json`.
-* **CI** (`.github/workflows/ci.yml`) — on every push: install pinned dependencies, run tests (including behaviour
-  tests on the saved model), build the Docker image and check the container's health endpoint.
-* **CD** (`.github/workflows/deploy-azure.yml`) — after CI passes on `main`: build and push the image to Azure
-  Container Registry, deploy to an Azure Web App for Containers, and verify the live health endpoint.
-  Needs the `AZURE_CREDENTIALS` secret and `ACR_NAME` / `AZURE_WEBAPP_NAME` variables.
-* **Container** — `Dockerfile` serves the Streamlit app on port 8501 (`WEBSITES_PORT=8501` on Azure).
+The full lifecycle runs on GitHub Actions + Azure (East Asia), with **no stored passwords or keys** — GitHub logs in
+to Azure through OIDC as a managed identity limited to one resource group. Day-to-day operation is described in
+[MAINTENANCE.md](MAINTENANCE.md).
+
+| Practice | Implementation |
+|---|---|
+| Data versioning & lineage | **DVC** pipeline (`dvc.yaml`, `params.yaml`, `dvc.lock`) with an **Azure Blob Storage** remote |
+| Experiment tracking | **MLflow on Azure Machine Learning** — one run per training, a child run per model compared, explanations and the packaged model as artifacts |
+| Model registry | Azure ML registry `solar-detector` (v1, v2, …) tagged `candidate` / `production` / `archived` with image tag, git SHA and data hash |
+| Continuous integration | `ci.yml` — pinned dependencies, 15 tests, Docker build + container health check |
+| Continuous delivery | `deploy.yml` — image to **Azure Container Registry** (tagged by commit), roll out to **Azure Container Apps**, live health check, registry update; one-click rollback to any earlier tag |
+| Continuous training | `retrain.yml` — `dvc repro`, drift report, **quality gate** (new model must not be worse), candidate registered, result pushed to a review branch |
+| Monitoring | app logs one JSON line per prediction (no personal data) to **Log Analytics**; `monitor.yml` checks uptime and summarises usage daily; PSI drift report on retraining |
+| Infrastructure as code | `infra/azure_setup.sh` recreates every Azure resource; `az group delete -n rg-solar-detector` removes them |
 
 ## 8. Limitations
 One utility area and period; solar systems that never export (off-grid, full battery) are labelled non-solar by

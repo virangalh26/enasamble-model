@@ -12,3 +12,5 @@ data/processed/*
 mlruns/
 catboost_info/
 .claude/
+reports/drift.json
+mlruns/
