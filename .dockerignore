@@ -1,0 +1,9 @@
+.venv/
+.git/
+data/
+notebooks/
+reports/
+tests/
+**/__pycache__/
+*.ipynb
+mlruns/
