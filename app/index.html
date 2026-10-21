@@ -49,6 +49,8 @@
     background: var(--night-950); color: var(--ivory-50);
     padding: 12px 28px; display: flex; align-items: center; justify-content: space-between; gap: 24px;
     border-bottom: 1px solid rgba(81, 112, 255, .22);
+    position: sticky; top: 0; z-index: 20;  /* stays at the top while the page scrolls */
+    box-shadow: 0 10px 24px -18px rgba(11, 11, 12, .6);
   }
   .eyb {
     display: inline-flex; align-items: center; gap: 12px;
@@ -76,9 +78,15 @@
   .head .eyb::before { width: 20px; }
 
   @media (max-width: 960px) {
-    .band { flex-direction: column; align-items: flex-start; padding: 18px 16px; }
-    .stats { gap: 24px; flex-wrap: wrap; }
+    .band { flex-direction: column; align-items: flex-start; gap: 8px; padding: 10px 16px; }
+    .band .eyb { font-size: 9.5px; letter-spacing: .22em; }
+    .band .eyb::before { width: 18px; }
+    .band h1 { font-size: 23px; }
+    .stats { gap: 14px; width: 100%; }
     .stat { text-align: left; }
+    .stat b { font-size: 18px; }
+    .stat span { font-size: 8.5px; letter-spacing: .08em; white-space: nowrap; }
+    .tables { margin-left: auto; padding: 7px 14px; font-size: 10.5px; }
     .grid { grid-template-columns: 1fr; padding: 16px 16px 32px; }
   }
 
@@ -415,7 +423,7 @@ api('/api/info').then(d => {
   $('modelName').textContent = `${d.model} · version ${d.version} · trained ${d.trained}`;
   $('weights').innerHTML = Object.entries(d.weights).sort((a, b) => b[1] - a[1]).map(([k, w]) =>
     `<tr><td>${esc(NAME[k] || k)}</td><td>${KIND[k] || ''}</td><td>${w.toFixed(2)}</td></tr>`).join('');
-  $('modelNote').textContent = `Held-out test on 592 unseen households: ${pct(d.accuracy)} accuracy (${d.errors} errors / ${d.n}), precision ${pct(d.precision)}, recall ${pct(d.recall)}, AUC ${d.auc.toFixed(4)}. Decision threshold ${d.threshold} was chosen on training households only. Export readings are never used as inputs.`;
+  $('modelNote').textContent = `Held-out test on 592 unseen households: ${(d.accuracy * 100).toFixed(2)}% accuracy (${d.errors} errors / ${d.n}), precision ${pct(d.precision)}, recall ${pct(d.recall)}, AUC ${d.auc.toFixed(4)}. Decision threshold ${d.threshold} was chosen on training households only. Export readings are never used as inputs.`;
   $('preset').innerHTML = Object.keys(d.presets).map(k => `<option>${esc(k)}</option>`).join('');
   buildHours();
   setHours(d.presets[$('preset').value]);
