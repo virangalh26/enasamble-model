@@ -7,7 +7,7 @@
 # Resources (all in one resource group, so deleting the group removes everything):
 #   Container Registry (Basic)      app images, tagged by git commit
 #   Log Analytics workspace         container logs and prediction logs
-#   Container Apps environment+app  the public Streamlit app (scales to zero)
+#   Container Apps environment+app  the public web app (scales to zero)
 #   Storage account (+ "dvc" blob)  DVC remote for datasets; Azure ML default storage
 #   Azure Machine Learning          MLflow experiment tracking and model registry
 #   2 user-assigned identities      id-solar-github: GitHub Actions login (OIDC, no secrets)
@@ -24,8 +24,8 @@ RG=rg-solar-detector
 ACR="acrsolar${SUFFIX}"
 ST="stsolar${SUFFIX}"
 LAW=log-solar-detector
-CAE=cae-solar-detector
-APP=ca-solar-detector
+CAE=cae-solar
+APP=ca-solar
 AML=mlw-solar-detector
 ID_GH=id-solar-github
 ID_APP=id-solar-app
@@ -53,7 +53,11 @@ az storage container-rm create -g "$RG" --storage-account "$ST" -n dvc -o none 2
 echo "== Managed identities and GitHub OIDC trust"
 az identity show -g "$RG" -n "$ID_GH" -o none 2>/dev/null || az identity create -g "$RG" -n "$ID_GH" -o none
 az identity show -g "$RG" -n "$ID_APP" -o none 2>/dev/null || az identity create -g "$RG" -n "$ID_APP" -o none
-for pair in "gh-main:repo:${REPO}:ref:refs/heads/main" "gh-production:repo:${REPO}:environment:production"; do
+# GitHub may send the subject with names only (repo:owner/repo) or, for newer repositories, with immutable IDs
+# (repo:owner@<owner id>/repo@<repo id>), so both forms are trusted. IDs: https://api.github.com/repos/<owner>/<repo>
+REPO_IDS="${REPO_IDS:-virangalh26@337202569/enasamble-model@1427262500}"
+for pair in "gh-main:repo:${REPO}:ref:refs/heads/main" "gh-production:repo:${REPO}:environment:production" \
+            "gh-main-id:repo:${REPO_IDS}:ref:refs/heads/main" "gh-production-id:repo:${REPO_IDS}:environment:production"; do
   name="${pair%%:*}"; subject="${pair#*:}"
   az identity federated-credential show -g "$RG" --identity-name "$ID_GH" -n "$name" -o none 2>/dev/null || \
     az identity federated-credential create -g "$RG" --identity-name "$ID_GH" -n "$name" \
@@ -70,7 +74,9 @@ echo "== Container Apps environment and app"
 if ! az containerapp env show -g "$RG" -n "$CAE" -o none 2>/dev/null; then
   LAW_CID="$(az monitor log-analytics workspace show -g "$RG" -n "$LAW" --query customerId -o tsv)"
   LAW_KEY="$(az monitor log-analytics workspace get-shared-keys -g "$RG" -n "$LAW" --query primarySharedKey -o tsv)"
-  az containerapp env create -g "$RG" -n "$CAE" -l "$LOCATION" \
+  # --enable-workload-profiles false: a standard Consumption environment. (An environment created with the
+  # defaults came up in "Express" mode, which cannot pull images from a private registry with an identity.)
+  az containerapp env create -g "$RG" -n "$CAE" -l "$LOCATION" --enable-workload-profiles false \
     --logs-workspace-id "$LAW_CID" --logs-workspace-key "$LAW_KEY" -o none
 fi
 APP_ID_RES="$(az identity show -g "$RG" -n "$ID_APP" --query id -o tsv)"
@@ -85,6 +91,8 @@ if ! az containerapp show -g "$RG" -n "$APP" -o none 2>/dev/null; then
     --cpu 1.0 --memory 2.0Gi --min-replicas 0 --max-replicas 1 \
     --user-assigned "$APP_ID_RES" --registry-server "${ACR}.azurecr.io" --registry-identity "$APP_ID_RES" -o none
 fi
+# Make sure the app pulls from the registry with its identity (keyless), whatever image it was created with.
+az containerapp registry set -g "$RG" -n "$APP" --server "${ACR}.azurecr.io" --identity "$APP_ID_RES" -o none
 
 echo "== Role assignments (least privilege, scoped to this resource group)"
 GH_PRINCIPAL="$(az identity show -g "$RG" -n "$ID_GH" --query principalId -o tsv)"

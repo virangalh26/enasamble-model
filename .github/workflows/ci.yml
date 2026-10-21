@@ -34,7 +34,7 @@ jobs:
         run: |
           docker run -d -p 8501:8501 --name app solar-detector:ci
           for i in $(seq 1 30); do
-            if curl -fs http://localhost:8501/_stcore/health; then echo " healthy"; exit 0; fi
+            if curl -fs http://localhost:8501/health; then echo " healthy"; exit 0; fi
             sleep 2
           done
           docker logs app; exit 1

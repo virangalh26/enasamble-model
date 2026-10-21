@@ -34,7 +34,7 @@ jobs:
           FQDN="$(az containerapp show -g "$RESOURCE_GROUP" -n "$CONTAINERAPP_NAME" --query properties.configuration.ingress.fqdn -o tsv)"
           IMAGE="$(az containerapp show -g "$RESOURCE_GROUP" -n "$CONTAINERAPP_NAME" --query 'properties.template.containers[0].image' -o tsv)"
           for i in $(seq 1 20); do
-            if curl -fsS --max-time 20 "https://$FQDN/_stcore/health"; then
+            if curl -fsS --max-time 20 "https://$FQDN/health"; then
               echo "### ✅ App is up — https://$FQDN (image \`${IMAGE##*:}\`)" >> "$GITHUB_STEP_SUMMARY"; exit 0
             fi
             sleep 15

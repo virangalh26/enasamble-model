@@ -4,7 +4,7 @@
 
 Detect whether a Sri Lankan household has **rooftop solar** using only its **grid import** smart-meter readings,
 with a stacking ensemble (LightGBM, XGBoost, CatBoost, Extra Trees → logistic regression), explained with SHAP and
-LIME, served through a Streamlit app, and packaged for deployment on Azure.
+LIME, served through a web app (Python server + HTML page), and packaged for deployment on Azure.
 
 | Held-out test (592 unseen households, 608 household-periods) | Result |
 |---|---|
@@ -51,7 +51,7 @@ exported (55 households installed part-way through). **Export readings are never
 | Ensemble | soft voting and **stacking** (out-of-fold, household-grouped meta-features → logistic regression) | `src/train.py` |
 | Household decision | mean of day probabilities; threshold (0.45) chosen on training households only | `src/model.py` |
 | Explainability | SHAP (tree SHAP on a base learner + permutation SHAP on the full ensemble), LIME | `src/explain.py`, `notebooks/02_…` |
-| App | Streamlit: one-day form with SHAP/LIME, or upload raw readings for a household verdict | `app/streamlit_app.py` |
+| App | Python standard-library server with a JSON API + one HTML page: one-day form with SHAP/LIME, or upload raw readings for a household verdict | `app/server.py`, `app/index.html` |
 
 ### Keeping the score honest
 * **Grouped splits** — a household's days are entirely in train or test (days of one home are near-duplicates).
@@ -98,7 +98,7 @@ system never exports). We report the honest held-out score rather than tuning to
 src/        download.py · data.py (pipeline) · features.py · model.py · train.py · explain.py
             drift.py (PSI monitoring) · quality_gate.py · track.py (MLflow/Azure ML) · mlflow_model.py
 notebooks/  01_eda.ipynb · 02_modelling_and_explainability.ipynb   (executed, with outputs)
-app/        streamlit_app.py · sample_meter_readings.csv
+app/        server.py (JSON API) · index.html (the page) · sample_meter_readings.csv
 models/     solar_detector.joblib (stacking ensemble + threshold) · metadata.json · reference_stats.json
 reports/    metrics.json · model_comparison.csv · best_params.json · test predictions · explain/ · figures/
 dvc.yaml    pipeline stages (download → build → train → explain) · params.yaml · dvc.lock
@@ -115,7 +115,7 @@ python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt -r requirements-mlops.txt
 dvc repro            # download → build (~1 min) → train (~50 min) → explain (~10 min); reruns only what changed
 pytest -q
-streamlit run app/streamlit_app.py
+python app/server.py      # opens http://127.0.0.1:8000
 ```
 
 ## 7. MLOps

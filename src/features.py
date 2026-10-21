@@ -1,4 +1,4 @@
-"""Feature engineering shared by training and the Streamlit app.
+"""Feature engineering shared by training and the web app.
 
 Input is one household-day of grid *import* energy per hour (24 values, kWh).
 Export readings are never used as features: they would reveal the label directly.

@@ -1,0 +1,429 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Rooftop Solar Detector</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --night-950: #0B0B0C; --night-900: #121214; --night-800: #1B1B1F;
+    --ivory-50: #FAF8F4; --ivory-100: #F3EFE8; --ivory-200: #E9E2D6; --ivory-300: #D9CFBE;
+    --blue-400: #7A91FF; --blue-500: #5170FF; --blue-600: #2F4FE0; --blue-btn: #4262F5;
+    --sun: #E8A33D; --sun-soft: #FBEFD9;
+
+    --bg: var(--ivory-100);
+    --card: #FFFDF9;
+    --panel: var(--ivory-50);
+    --ink: #121214;
+    --ink-2: #5B574F;
+    --ink-3: #8A847A;
+    --hair: #E4DCCD;
+    --accent: var(--blue-600);
+    --accent-soft: #E4E9FF;
+    --ok: #2E9E62; --ok-soft: #E3F3EA;
+    --bad: #C2554A; --bad-soft: #F8E7E4;
+    --shadow: 0 1px 2px rgba(11, 11, 12, .04), 0 14px 34px -22px rgba(11, 11, 12, .28);
+
+    color-scheme: light;
+    --serif: 'Cormorant Garamond', Georgia, serif;
+    --sans: 'Manrope', -apple-system, system-ui, sans-serif;
+  }
+
+  *, *::before, *::after { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font: 15px/1.5 var(--sans);
+    -webkit-font-smoothing: antialiased;
+  }
+  h1, h2, h3, p { margin: 0; }
+  button, select, input { font: inherit; color: inherit; }
+  :focus-visible { outline: 2px solid var(--blue-500); outline-offset: 2px; }
+  ::selection { background: #A9B8FF; color: var(--night-950); }
+
+  .wrap { min-height: 100vh; display: flex; flex-direction: column; }
+
+  .band {
+    background: var(--night-950); color: var(--ivory-50);
+    padding: 12px 28px; display: flex; align-items: center; justify-content: space-between; gap: 24px;
+    border-bottom: 1px solid rgba(81, 112, 255, .22);
+  }
+  .eyb {
+    display: inline-flex; align-items: center; gap: 12px;
+    color: var(--blue-400); font-size: 11px; font-weight: 600; letter-spacing: .28em; text-transform: uppercase;
+  }
+  .eyb::before { content: ''; width: 32px; height: 1px; background: currentColor; opacity: .6; }
+  .band h1 { margin-top: 2px; font-family: var(--serif); font-weight: 500; font-size: 28px; line-height: 1.05; letter-spacing: -.012em; }
+  .band h1 em { color: var(--blue-400); font-weight: 500; }
+  .stats { display: flex; gap: 36px; align-items: center; }
+  .stat { text-align: right; }
+  .stat b { display: block; font-family: var(--serif); font-weight: 500; font-size: 23px; line-height: 1.1; letter-spacing: -.01em; }
+  .stat span { font-size: 10px; font-weight: 600; letter-spacing: .14em; text-transform: uppercase; color: rgba(243, 239, 232, .55); }
+
+  .grid {
+    flex: 1; padding: 14px 28px 20px;
+    display: grid; grid-template-columns: 1.05fr 1fr; gap: 14px; align-items: start;
+  }
+  .card {
+    background: var(--card); border: 1px solid var(--hair); border-radius: 18px; box-shadow: var(--shadow);
+    padding: 14px 18px 16px; display: flex; flex-direction: column; min-width: 0;
+  }
+  .head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
+  .head h2 { font-family: var(--serif); font-weight: 600; font-size: 22px; line-height: 1.1; letter-spacing: -.01em; }
+  .head .eyb { color: var(--accent); font-size: 10px; }
+  .head .eyb::before { width: 20px; }
+
+  @media (max-width: 960px) {
+    .band { flex-direction: column; align-items: flex-start; padding: 18px 16px; }
+    .stats { gap: 24px; flex-wrap: wrap; }
+    .stat { text-align: left; }
+    .grid { grid-template-columns: 1fr; padding: 16px 16px 32px; }
+  }
+
+  .label { display: block; font-size: 12px; font-weight: 600; color: var(--ink-2); margin-bottom: 4px; }
+  .field {
+    width: 100%; height: 36px; padding: 0 12px; font-size: 14px;
+    background: var(--panel); border: 1px solid var(--hair); color: var(--ink); border-radius: 12px;
+    transition: border-color .2s, box-shadow .2s;
+  }
+  select.field {
+    appearance: none; padding-right: 36px; cursor: pointer;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' fill='none' stroke='%238A847A' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M1 1.5l5 5 5-5'/%3E%3C/svg%3E");
+    background-repeat: no-repeat; background-position: right 14px center;
+  }
+  .field:focus { outline: none; border-color: var(--blue-500); box-shadow: 0 0 0 3px rgba(81, 112, 255, .18); }
+
+  .hours { display: grid; grid-template-columns: repeat(6, 1fr); gap: 6px 8px; margin: 10px 0 12px; }
+  @media (max-width: 520px) { .hours { grid-template-columns: repeat(4, 1fr); } }
+  .hours label { display: block; font-size: 10.5px; font-weight: 700; letter-spacing: .08em; color: var(--ink-3); margin-bottom: 2px; }
+  .hours label.sun { color: var(--sun); }
+  .hours .field { height: 32px; padding: 0 8px; font-size: 13px; border-radius: 9px; font-variant-numeric: tabular-nums; }
+  .hours .field.sun { background: var(--sun-soft); }
+  .hours .field::-webkit-inner-spin-button, .hours .field::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+  .hours .field { -moz-appearance: textfield; appearance: textfield; }
+
+  .btn {
+    display: inline-flex; align-items: center; justify-content: center; gap: 9px;
+    border-radius: 999px; border: 1px solid transparent; white-space: nowrap; cursor: pointer;
+    font-size: 12px; font-weight: 700; letter-spacing: .16em; text-transform: uppercase;
+    padding: 11px 22px; line-height: 1.2;
+    transition: transform .2s, box-shadow .2s, background .2s, color .2s, border-color .2s;
+  }
+  .btn:hover { transform: translateY(-1px); }
+  .btn:disabled { opacity: .55; cursor: wait; transform: none; }
+  .primary { width: 100%; background: var(--blue-btn); color: #fff; box-shadow: 0 14px 30px -18px rgba(81, 112, 255, .9); }
+  .primary:hover { background: var(--blue-600); }
+  .ghost { padding: 8px 14px; font-size: 10.5px; letter-spacing: .14em; background: transparent; color: var(--ink-2); border-color: var(--hair); }
+  .ghost:hover { color: var(--accent); border-color: var(--accent); transform: none; }
+  .row-btns { display: flex; gap: 8px; flex-wrap: wrap; }
+
+  .msg { margin-top: 10px; padding: 8px 12px; border-radius: 10px; font-size: 13.5px; line-height: 1.4; font-weight: 500; display: none; }
+  .msg.ok  { display: block; background: var(--ok-soft); color: var(--ok); }
+  .msg.bad { display: block; background: var(--bad-soft); color: var(--bad); }
+
+  .verdict { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 4px 0 10px; }
+  .verdict h3 { font-family: var(--serif); font-weight: 600; font-size: 34px; line-height: 1; letter-spacing: -.01em; }
+  .verdict h3.solar { color: var(--sun); }
+  .verdict h3.none { color: var(--accent); }
+  .pct { text-align: right; }
+  .pct b { display: block; font-size: 26px; font-weight: 800; letter-spacing: -.02em; line-height: 1; }
+  .pct span { font-size: 10px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; color: var(--ink-3); }
+  .meter { position: relative; height: 10px; border-radius: 999px; background: var(--ivory-200); margin: 4px 0 4px; }
+  .meter i { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 999px; background: var(--blue-500); transition: width .4s; }
+  .meter i.solar { background: var(--sun); }
+  .meter .thr { position: absolute; top: -5px; bottom: -5px; width: 2px; background: var(--ink); border-radius: 2px; }
+  .scale { display: flex; justify-content: space-between; font-size: 11px; color: var(--ink-3); }
+
+  .sub { color: var(--ink-3); font-size: 12.5px; }
+  .k { font-size: 10px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; color: var(--ink-3); }
+  .chart { width: 100%; height: auto; display: block; margin-top: 6px; }
+  .chart text { font: 600 10px var(--sans); fill: var(--ink-3); }
+  .section { margin-top: 14px; }
+
+  .tabs { display: flex; gap: 8px; margin-bottom: 8px; }
+  .chip {
+    display: inline-flex; align-items: center; white-space: nowrap; cursor: pointer;
+    font-size: 12.5px; font-weight: 600; border-radius: 999px; padding: 5px 12px; line-height: 1.3;
+    border: 1px solid var(--hair); background: var(--panel); color: var(--ink-2); font-family: inherit;
+  }
+  .chip.accent, .chip:hover { background: var(--accent-soft); color: var(--accent); border-color: transparent; }
+  .why { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr); align-items: center; gap: 6px 14px; }
+  .why .name { font-size: 13px; font-weight: 600; line-height: 1.25; }
+  .why .name small { display: block; font-weight: 500; color: var(--ink-3); font-size: 11.5px; }
+  .div { position: relative; height: 18px; }
+  .div::before { content: ''; position: absolute; left: 50%; top: -3px; bottom: -3px; width: 1px; background: var(--hair); }
+  .div i { position: absolute; top: 3px; height: 12px; border-radius: 4px; }
+  .div i.pos { left: 50%; background: var(--sun); }
+  .div i.neg { right: 50%; background: var(--blue-500); }
+  .legend { display: flex; justify-content: space-between; font-size: 11px; color: var(--ink-3); margin: 2px 0 8px; }
+  .legend b { font-weight: 700; }
+  .empty { color: var(--ink-3); font-size: 13.5px; padding: 8px 0; }
+
+  .upload { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin: 4px 0 6px; }
+  .upload input[type=file] { position: absolute; width: 1px; height: 1px; opacity: 0; }
+  .result { display: flex; align-items: center; justify-content: space-between; gap: 12px; border-top: 1px solid var(--hair); padding-top: 10px; margin-top: 10px; }
+
+  .tables { background: transparent; color: var(--ivory-50); border-color: rgba(243, 239, 232, .3); padding: 9px 18px; }
+  .tables:hover { border-color: var(--blue-400); color: var(--blue-400); }
+  dialog.sheet {
+    width: min(640px, calc(100vw - 32px)); max-height: calc(100vh - 64px); padding: 18px 20px 20px;
+    border: 1px solid var(--hair); border-radius: 18px; background: var(--card); color: var(--ink); box-shadow: var(--shadow);
+  }
+  dialog.sheet::backdrop { background: rgba(11, 11, 12, .45); }
+  .tbl { width: 100%; border-collapse: collapse; font-size: 13.5px; margin-top: 6px; }
+  .tbl th { text-align: left; font-size: 10px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; color: var(--ink-3); padding: 6px 8px 6px 0; }
+  .tbl td { border-top: 1px solid var(--hair); padding: 7px 8px 7px 0; }
+  .tbl td:last-child, .tbl th:last-child { text-align: right; }
+  .note { font-size: 13px; color: var(--ink-2); margin-top: 10px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="band">
+    <div>
+      <span class="eyb">Smart-meter analytics · Sri Lanka</span>
+      <h1>Rooftop <em>Solar</em> Detector</h1>
+    </div>
+    <div class="stats">
+      <div class="stat"><b id="stAcc">–</b><span>Household accuracy</span></div>
+      <div class="stat"><b id="stErr">–</b><span>Test errors</span></div>
+      <div class="stat"><b id="stAuc">–</b><span>AUC</span></div>
+      <button class="btn tables" id="modelBtn">Model</button>
+    </div>
+  </header>
+
+  <dialog class="sheet" id="modelSheet">
+    <div class="head"><h2>The model</h2><button class="btn ghost" id="modelClose">Close</button></div>
+    <p class="sub" id="modelName"></p>
+    <table class="tbl">
+      <thead><tr><th>Base learner</th><th>Type</th><th>Stacking weight</th></tr></thead>
+      <tbody id="weights"></tbody>
+    </table>
+    <p class="note" id="modelNote"></p>
+  </dialog>
+
+  <main class="grid">
+    <section class="card">
+      <div class="head"><h2>One day of grid import</h2><span class="eyb">kWh per hour</span></div>
+      <label class="label" for="preset">Start from</label>
+      <select class="field" id="preset"></select>
+      <div class="hours" id="hours"></div>
+      <button class="btn primary" id="predictBtn">Predict</button>
+      <p class="sub" style="margin-top:8px">Shaded hours (09:00–15:00) are when panels produce; a solar home imports almost nothing then.</p>
+    </section>
+
+    <section class="card">
+      <div class="head"><h2>Prediction</h2><span class="eyb">Stacking ensemble</span></div>
+      <div class="verdict">
+        <h3 id="verdict">–</h3>
+        <div class="pct"><b id="pSolar">–</b><span>P(solar)</span></div>
+      </div>
+      <div class="meter"><i id="meterFill"></i><span class="thr" id="meterThr"></span></div>
+      <div class="scale"><span>0%</span><span id="thrLabel">threshold</span><span>100%</span></div>
+      <div class="section"><span class="k">This day's import</span>
+        <svg class="chart" id="profile" viewBox="0 0 520 150" role="img" aria-label="Hourly import chart"></svg>
+      </div>
+      <p class="msg" id="dMsg"></p>
+    </section>
+
+    <section class="card">
+      <div class="head"><h2>Why this prediction</h2><span class="eyb">Explainability</span></div>
+      <div class="tabs">
+        <button class="chip accent" data-tab="shap">SHAP</button>
+        <button class="chip" data-tab="lime">LIME</button>
+      </div>
+      <div class="legend"><span>← <b>away from solar</b></span><span><b>towards solar</b> →</span></div>
+      <div id="why"><p class="empty">Press Predict to see which features drove the result.</p></div>
+      <p class="sub" id="whyNote" style="margin-top:8px"></p>
+    </section>
+
+    <section class="card">
+      <div class="head"><h2>Check a household</h2><span class="eyb">Upload meter readings</span></div>
+      <p class="sub">A CSV with columns <b>timestamp</b> and <b>import_kwh</b> (the cumulative import register, every 15 minutes). One day can be ambiguous, so the household verdict averages all complete days.</p>
+      <div class="upload">
+        <label class="btn ghost" for="csvFile">Choose CSV</label>
+        <input type="file" id="csvFile" accept=".csv,text/csv">
+        <button class="btn ghost" id="sampleBtn">Use sample household</button>
+        <span class="sub" id="fileName"></span>
+      </div>
+      <div id="hhOut"></div>
+      <p class="msg" id="hMsg"></p>
+    </section>
+  </main>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const pct = p => (p * 100).toFixed(1) + '%';
+const SUN = [9, 10, 11, 12, 13, 14, 15];
+const KIND = { extra_trees: 'Bagging', lightgbm: 'Boosting', xgboost: 'Boosting', catboost: 'Boosting' };
+const NAME = { extra_trees: 'Extra Trees', lightgbm: 'LightGBM', xgboost: 'XGBoost', catboost: 'CatBoost' };
+let info = null;
+let lastHours = null;
+let tab = 'shap';
+let lastWhy = null;
+
+async function api(path, body) {
+  const res = await fetch(path, body ? {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body)
+  } : {});
+  return res.json();
+}
+
+function show(id, msg, ok) {
+  $(id).textContent = msg;
+  $(id).classList.remove('ok', 'bad');
+  if (msg) $(id).classList.add(ok ? 'ok' : 'bad');
+}
+
+// ---------- hour inputs
+function buildHours() {
+  $('hours').innerHTML = info.hours.map((h, i) => {
+    const sun = SUN.includes(i) ? ' sun' : '';
+    return `<div><label class="${sun.trim()}" for="h${i}">${String(i).padStart(2, '0')}:00</label>
+      <input class="field${sun}" id="h${i}" type="number" min="0" max="50" step="0.01" inputmode="decimal"></div>`;
+  }).join('');
+}
+const readHours = () => info.hours.map((_, i) => Number($('h' + i).value || 0));
+function setHours(values) { values.forEach((v, i) => $('h' + i).value = v); }
+
+// ---------- charts (plain SVG)
+function profileChart(values) {
+  const W = 520, H = 150, L = 34, B = 22, T = 8, max = Math.max(0.05, ...values) * 1.1;
+  const bw = (W - L - 6) / 24, y = v => T + (H - T - B) * (1 - v / max);
+  let s = `<rect x="${L + 9 * bw}" y="${T}" width="${7 * bw}" height="${H - T - B}" fill="#FBEFD9"/>`;
+  [0, max / 2, max].forEach(t => s += `<line x1="${L}" x2="${W}" y1="${y(t)}" y2="${y(t)}" stroke="#E4DCCD"/>
+    <text x="${L - 6}" y="${y(t) + 3}" text-anchor="end">${t.toFixed(2)}</text>`);
+  values.forEach((v, i) => {
+    s += `<rect x="${L + i * bw + 2}" y="${y(v)}" width="${bw - 4}" height="${Math.max(0, H - B - y(v))}" rx="2" fill="${SUN.includes(i) ? '#E8A33D' : '#5170FF'}"><title>${String(i).padStart(2, '0')}:00 — ${v} kWh</title></rect>`;
+    if (i % 3 === 0) s += `<text x="${L + i * bw + bw / 2}" y="${H - 6}" text-anchor="middle">${String(i).padStart(2, '0')}</text>`;
+  });
+  return s;
+}
+
+function dayChart(days, thr) {
+  const W = 520, H = 150, L = 34, B = 22, T = 8, n = days.length;
+  const x = i => L + (W - L - 10) * (n === 1 ? 0.5 : i / (n - 1)), y = p => T + (H - T - B) * (1 - p);
+  let s = '';
+  [0, 0.5, 1].forEach(t => s += `<line x1="${L}" x2="${W}" y1="${y(t)}" y2="${y(t)}" stroke="#E4DCCD"/>
+    <text x="${L - 6}" y="${y(t) + 3}" text-anchor="end">${Math.round(t * 100)}%</text>`);
+  s += `<line x1="${L}" x2="${W}" y1="${y(thr)}" y2="${y(thr)}" stroke="#C2554A" stroke-dasharray="4 4"/>
+    <text x="${W}" y="${y(thr) - 4}" text-anchor="end" style="fill:#C2554A">threshold ${Math.round(thr * 100)}%</text>`;
+  s += `<polyline fill="none" stroke="#9AA5B1" stroke-width="1" points="${days.map((d, i) => `${x(i)},${y(d.p)}`).join(' ')}"/>`;
+  days.forEach((d, i) => s += `<circle cx="${x(i)}" cy="${y(d.p)}" r="3" fill="${d.p >= thr ? '#E8A33D' : '#5170FF'}"><title>${d.day}: ${pct(d.p)}</title></circle>`);
+  const ticks = n > 1 ? [0, Math.floor((n - 1) / 2), n - 1] : [0];
+  ticks.forEach(i => s += `<text x="${x(i)}" y="${H - 6}" text-anchor="middle">${days[i].day.slice(5)}</text>`);
+  return s;
+}
+
+// ---------- prediction
+function showVerdict(el, p, solar) {
+  el.textContent = solar ? 'Solar installed' : 'No solar';
+  el.className = solar ? 'solar' : 'none';
+}
+
+async function predict() {
+  lastHours = readHours();
+  $('predictBtn').disabled = true;
+  const r = await api('/api/predict', { hours: lastHours });
+  $('predictBtn').disabled = false;
+  if (!r.ok) return show('dMsg', r.message, false);
+  show('dMsg', '', true);
+  showVerdict($('verdict'), r.p, r.solar);
+  $('pSolar').textContent = pct(r.p);
+  $('meterFill').style.width = pct(r.p);
+  $('meterFill').className = r.solar ? 'solar' : '';
+  $('profile').innerHTML = profileChart(lastHours);
+  lastWhy = r.why;
+  if (tab === 'shap') renderShap(); else loadLime();
+}
+
+function bars(rows, key, scaleOf) {
+  const m = Math.max(...rows.map(r => Math.abs(r[key])), 1e-9);
+  return `<div class="why">${rows.map(r => {
+    const w = Math.abs(r[key]) / m * 50;
+    return `<div class="name">${scaleOf(r)}</div>
+      <div class="div" title="${r[key]}"><i class="${r[key] >= 0 ? 'pos' : 'neg'}" style="width:${w}%"></i></div>`;
+  }).join('')}</div>`;
+}
+
+function renderShap() {
+  if (!lastWhy) return;
+  $('why').innerHTML = bars(lastWhy, 'shap', r => `${esc(r.label)}<small>value ${r.value}</small>`);
+  $('whyNote').textContent = `Tree SHAP on the ${NAME[info.shapModel]} base learner (log-odds). Longer bar = stronger effect.`;
+}
+
+async function loadLime() {
+  if (!lastHours) return;
+  $('why').innerHTML = '<p class="empty">Fitting a local surrogate model…</p>';
+  const r = await api('/api/lime', { hours: lastHours });
+  if (!r.ok) { $('why').innerHTML = `<p class="empty">${esc(r.message)}</p>`; return; }
+  $('why').innerHTML = bars(r.rules, 'weight', x => esc(x.rule));
+  $('whyNote').textContent = 'LIME on the full stacking ensemble: a simple model fitted around this one day.';
+}
+
+document.querySelector('.tabs').addEventListener('click', e => {
+  const b = e.target.closest('[data-tab]');
+  if (!b) return;
+  tab = b.dataset.tab;
+  document.querySelectorAll('.tabs .chip').forEach(c => c.classList.toggle('accent', c === b));
+  if (tab === 'shap') renderShap(); else loadLime();
+});
+
+// ---------- household upload
+async function checkHousehold(csv, name) {
+  $('fileName').textContent = name;
+  $('hhOut').innerHTML = '<p class="empty">Reading meter data…</p>';
+  show('hMsg', '', true);
+  const r = await api('/api/household', { csv });
+  if (!r.ok) { $('hhOut').innerHTML = ''; return show('hMsg', r.message, false); }
+  $('hhOut').innerHTML = `
+    <div class="result">
+      <div><span class="k">Household verdict</span><div class="verdict" style="padding:2px 0 0"><h3 id="hhVerdict"></h3></div></div>
+      <div class="pct"><b>${pct(r.p)}</b><span>mean P(solar) · ${r.nDays} days</span></div>
+    </div>
+    <div class="section"><span class="k">Day by day</span><svg class="chart" viewBox="0 0 520 150">${dayChart(r.days, info.threshold)}</svg></div>
+    <div class="section"><span class="k">Average day</span><svg class="chart" viewBox="0 0 520 150">${profileChart(r.profile)}</svg></div>`;
+  showVerdict($('hhVerdict'), r.p, r.solar);
+  show('hMsg', r.message, true);
+}
+
+$('csvFile').addEventListener('change', async e => {
+  const f = e.target.files[0];
+  if (f) checkHousehold(await f.text(), f.name);
+});
+$('sampleBtn').addEventListener('click', async () => {
+  const csv = await fetch('/api/sample').then(r => r.text());
+  checkHousehold(csv, 'sample_meter_readings.csv (held-out test household)');
+});
+
+// ---------- model sheet
+$('modelBtn').addEventListener('click', () => $('modelSheet').showModal());
+$('modelClose').addEventListener('click', () => $('modelSheet').close());
+
+// ---------- start
+api('/api/info').then(d => {
+  info = d;
+  $('stAcc').textContent = (d.accuracy * 100).toFixed(2) + '%';
+  $('stErr').textContent = `${d.errors} / ${d.n}`;
+  $('stAuc').textContent = d.auc.toFixed(4);
+  $('meterThr').style.left = pct(d.threshold);
+  $('thrLabel').textContent = `threshold ${Math.round(d.threshold * 100)}%`;
+  $('modelName').textContent = `${d.model} · version ${d.version} · trained ${d.trained}`;
+  $('weights').innerHTML = Object.entries(d.weights).sort((a, b) => b[1] - a[1]).map(([k, w]) =>
+    `<tr><td>${esc(NAME[k] || k)}</td><td>${KIND[k] || ''}</td><td>${w.toFixed(2)}</td></tr>`).join('');
+  $('modelNote').textContent = `Held-out test on 592 unseen households: ${pct(d.accuracy)} accuracy (${d.errors} errors / ${d.n}), precision ${pct(d.precision)}, recall ${pct(d.recall)}, AUC ${d.auc.toFixed(4)}. Decision threshold ${d.threshold} was chosen on training households only. Export readings are never used as inputs.`;
+  $('preset').innerHTML = Object.keys(d.presets).map(k => `<option>${esc(k)}</option>`).join('');
+  buildHours();
+  setHours(d.presets[$('preset').value]);
+  predict();
+});
+$('preset').addEventListener('change', () => { setHours(info.presets[$('preset').value]); predict(); });
+$('predictBtn').addEventListener('click', predict);
+$('hours').addEventListener('keydown', e => { if (e.key === 'Enter') predict(); });
+</script>
+</body>
+</html>

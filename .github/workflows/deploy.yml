@@ -81,7 +81,7 @@ jobs:
       - name: Check the live app (allows for a cold start)
         run: |
           for i in $(seq 1 40); do
-            if curl -fsS --max-time 20 "$APP_URL/_stcore/health"; then
+            if curl -fsS --max-time 20 "$APP_URL/health"; then
               echo; echo "### Deployed \`$TAG\` → $APP_URL" >> "$GITHUB_STEP_SUMMARY"; exit 0
             fi
             sleep 15

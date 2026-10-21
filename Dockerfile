@@ -11,9 +11,8 @@ COPY src/ src/
 COPY app/ app/
 COPY models/ models/
 
-ENV PYTHONUNBUFFERED=1 \
-    STREAMLIT_SERVER_HEADLESS=true \
-    STREAMLIT_BROWSER_GATHER_USAGE_STATS=false
+ENV PYTHONUNBUFFERED=1
 EXPOSE 8501
-HEALTHCHECK CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8501/_stcore/health')"
-CMD ["streamlit", "run", "app/streamlit_app.py", "--server.port=8501", "--server.address=0.0.0.0"]
+HEALTHCHECK CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8501/health')"
+# app/server.py: Python standard-library web server + app/index.html (no Streamlit)
+CMD ["python", "app/server.py", "--host", "0.0.0.0", "--port", "8501", "--no-browser"]
