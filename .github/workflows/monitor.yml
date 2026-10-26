@@ -48,8 +48,8 @@ jobs:
           QUERY='ContainerAppConsoleLogs_CL
             | where TimeGenerated > ago(7d) and Log_s has "\"event\": \"prediction\""
             | extend e = parse_json(Log_s)
-            | summarize predictions = count(), solar_share = round(avg(todouble(e.verdict)), 3),
-                        mean_p_solar = round(avg(todouble(e.p_solar)), 3) by mode = tostring(e.mode), version = tostring(e.model_version)'
+            | summarize predictions = count(), flagged_share = round(avg(todouble(e.flag)), 3),
+                        mean_p_poor = round(avg(todouble(e.p_poor)), 3) by version = tostring(e.model_version)'
           {
             echo "### Predictions in the last 7 days"
             az monitor log-analytics query -w "$WS" --analytics-query "$QUERY" -o table || echo "(no prediction logs yet)"

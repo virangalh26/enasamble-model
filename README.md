@@ -1,140 +1,127 @@
-# ☀️ Rooftop Solar Detection from Smart-Meter Data — Sri Lanka
+# 🏠 Aswesuma-style Poverty Targeting with NGBoost — Sri Lanka
 
-**AML Assignment 2 · Ensemble learning on a real, local dataset**
+**AML Assignment 2 · A new algorithm (not taught in lectures) on a real, local dataset**
 
-Detect whether a Sri Lankan household has **rooftop solar** using only its **grid import** smart-meter readings,
-with a stacking ensemble (LightGBM, XGBoost, CatBoost, Extra Trees → logistic regression), explained with SHAP and
-LIME, served through a web app (Python server + HTML page), and packaged for deployment on Azure.
+Predict whether a Sri Lankan household is **below the official poverty line** from what a welfare officer can
+observe on a home visit (house, facilities, belongings, land, household members), using **NGBoost** (Natural
+Gradient Boosting). Each household gets a probability *and* an uncertainty range, explained with SHAP, LIME and
+partial dependence, and served through a web app (Python server + HTML page) packaged for Azure.
 
-| Held-out test (592 unseen households, 608 household-periods) | Result |
-|---|---|
-| **Household accuracy** | **99.18%** (5 errors / 608) |
-| Household AUC | 0.9973 |
-| Precision / recall (solar) | 1.000 / 0.951 |
-| Day-level accuracy (90,559 test days) | 98.35% |
-| Majority-class baseline | 83.06% |
+> **Status:** the code is complete and tested on synthetic HIES-shaped files. Results below are filled in once the
+> HIES 2019 microdata (free Lanka Datta registration) is in `data/raw/hies2019/` and `dvc repro` has run.
 
 ---
 
 ## 1. The problem
 
-After the 2022 power crisis and the tariff increases that followed, rooftop solar spread rapidly across Sri Lanka.
-Distribution utilities (CEB, LECO) need to know **which homes have solar** to plan feeders, manage reverse power flow
-and keep records current, including systems that were never registered. Smart meters record how much energy a
-home *imports* every 15 minutes; a solar home's import collapses during the day because the panels cover the load.
-The task: **classify a household as solar / non-solar from its import profile alone.**
+In 2023 Sri Lanka replaced Samurdhi with **Aswesuma**, a welfare benefit targeted with a household questionnaire
+scored by a formula. Its first lists were widely criticised: poor families left out (*exclusion error*) and better-off
+families let in (*inclusion error*). Asking about income does not work well because income is hard to verify, so
+programmes like this use a **proxy means test (PMT)**: predict a household's consumption from things that are easy to
+observe and hard to hide, such as wall and floor material, a fridge or a motorbike, land, and the number of children.
+
+The task: **from observable household characteristics, predict whether monthly consumption per person is below the
+official poverty line**, with an honest measure of how sure the model is.
 
 ## 2. Data
 
-**RECON-SL** — *Residential Electricity Consumption Dataset for Sri Lanka*, LIRNEasia (2025).
-C. Algama et al., IEEE DataPort, doi:[10.21227/n1dk-q860](https://dx.doi.org/10.21227/n1dk-q860);
-[Kaggle mirror](https://www.kaggle.com/datasets/lirneasia/sri-lankan-residential-electricity-consumption).
+**Household Income and Expenditure Survey 2019 (HIES 2019)**, Department of Census and Statistics (DCS),
+public-use 25% sample, [Lanka Datta catalog 476](https://nada.statistics.gov.lk/index.php/catalog/476).
+The microdata needs a free account and is **not redistributed** (`data/raw/` is git-ignored).
 
-* 15-minute smart-meter readings from LECO customers (Moratuwa area), **Oct 2023 – Dec 2024** (~45.6 M readings).
-* After cleaning: **452,811 complete household-days** from **2,925 households**, 492 of which export solar energy.
-* The raw data is not committed (`data/` is git-ignored); `app/sample_meter_readings.csv` is 4 weeks of import
-  readings from one held-out household, used as the app's demo input.
-
-**Label.** Defined from the meter's *export register* (energy sent to the grid) and fixed before modelling:
-a household has solar if it exported > 1 kWh; a day counts as "solar installed" from the first day with > 0.1 kWh
-exported (55 households installed part-way through). **Export readings are never used as features.**
+* About **4,982 households** across all 25 districts and the urban, rural and estate sectors.
+* 29 files are joined on the household key (`psu`, `snumber`, `hhno`); see `src/hies.py`.
+* **Target:** monthly consumption expenditure (food + non-food, purchased and in-kind) per person, and
+  `poor` = below **Rs 6,966 per person per month**, the DCS official (updated) poverty line for 2019
+  ([Poverty indicators 2019](https://www.statistics.gov.lk/Resource/en/Poverty/PovertyIndicators-2019.pdf)).
+  The label is checked against the published DCS poverty rates by district (`reports/label_check_vs_dcs.csv`).
+* **Features (~100 raw, ~150 after one-hot):** household members (size, children, elderly, dependency ratio, head's
+  sex/age/education, employment), housing (walls, floor, roof, rooms, toilet, water, cooking fuel, lighting),
+  26 durable goods, land and livestock, distance to services, district and sector.
+* **Never features:** income and expenditure (they define the target), and ethnicity and religion (kept only to
+  audit fairness).
 
 ## 3. Method
 
-| Step | What was done | Where |
+| Step | What is done | Where |
 |---|---|---|
-| EDA | coverage, hourly profiles, distributions, household heat-maps, before/after installation, survey vs meter label agreement | `notebooks/01_eda.ipynb` |
-| Preprocessing | cumulative registers → 15-min energy; glitch/reset removal; near-complete days only (≥ 90/96 readings, so no imputation); 24 hourly values per day | `src/data.py` |
-| Features | 64 features: hourly kWh, hourly shares (scale-free shape), midday/night/evening ratios, daytime minimum, "solar bowl" depth, peak/trough hour | `src/features.py` |
-| Models compared | Dummy, Logistic Regression, KNN, Decision Tree, Random Forest, Extra Trees, HistGradientBoosting, XGBoost, LightGBM, CatBoost | `src/train.py` |
-| Tuning | Optuna (TPE) on household-grouped CV, minimising day-level log-loss | `src/train.py` |
-| Ensemble | soft voting and **stacking** (out-of-fold, household-grouped meta-features → logistic regression) | `src/train.py` |
-| Household decision | mean of day probabilities; threshold (0.45) chosen on training households only | `src/model.py` |
-| Explainability | SHAP (tree SHAP on a base learner + permutation SHAP on the full ensemble), LIME | `src/explain.py`, `notebooks/02_…` |
-| App | Python standard-library server with a JSON API + one HTML page: one-day form with SHAP/LIME, or upload raw readings for a household verdict | `app/server.py`, `app/index.html` |
+| Data | join 29 HIES files, consumption aggregate, poverty label, check against DCS district rates | `src/hies.py` |
+| Features | household-level proxies; nominal codes one-hot encoded | `src/features.py` |
+| **Model** | **NGBoost** with a Normal distribution on log consumption per person: P(poor) = Φ((log z − μ)/σ) | `src/model.py` |
+| Tuning | grid over tree depth, learning rate and mini-batch fraction, with early stopping, on PSU-grouped CV | `src/train.py` |
+| Baselines | Linear Regression PMT (standard practice), Logistic Regression, KNN, Decision Tree, Random Forest, XGBoost, LightGBM, and NGBoost with the ordinary gradient (ablation) | `src/train.py` |
+| Evaluation | PR-AUC, ROC-AUC, F1, Brier; exclusion and inclusion error at a fixed budget; RMSE, NLL and 80% interval coverage of the predicted distribution; fairness by sector, head's sex, ethnicity and district | `src/train.py` |
+| Explainability | SHAP (TreeExplainer) on μ and on σ, LIME, PDP + ICE, permutation importance | `src/explain.py` |
+| App | officer's visit form → chance of being poor, spending range vs the poverty line, SHAP or LIME reasons | `app/` |
+
+### Why NGBoost
+* Not covered in lectures, and not deep learning. NGBoost (Duan et al., ICML 2020) is gradient boosting that learns
+  **all parameters of a probability distribution** (here μ and σ of log consumption), using the **natural gradient**,
+  which accounts for the geometry of the distribution space and makes learning μ and σ together stable.
+* **How it differs:** logistic regression and a PMT regression give one number and a single, shared error band;
+  decision trees, Random Forest and XGBoost give one point estimate; k-NN averages neighbours. NGBoost gives each
+  household its own spread, so the app can say "Rs 6,200 (80% range Rs 4,900–7,800)" and flag uncertain cases for a
+  closer check.
+* It predicts consumption, the quantity the poverty line is defined on, instead of only a yes/no label, so the
+  same model also serves different poverty lines or budgets.
 
 ### Keeping the score honest
-* **Grouped splits** — a household's days are entirely in train or test (days of one home are near-duplicates).
-* **20% of households held out** and scored once at the end; tuning and the threshold use training households only.
-* **Leakage removed** — export energy/power, reactive power and power factor are never read; the 6-hour files' `EXPORT`
-  flag and meter type are not used. A first run ranked *calendar month* #2 in SHAP; the solar share per month
-  (7–53%) reflects which meters reported, not sunlight, so month was **removed** and the model retrained.
-* **No single feature is a perfect proxy** — the best single feature has AUC 0.885 (EDA §5).
+* **Grouped splits:** households of one survey cluster (PSU) share prices and infrastructure, so a PSU is entirely
+  in training or test. 20% of PSUs are held out and scored once at the end.
+* Hyperparameters, the number of boosting rounds and the decision threshold are chosen on training households only.
 
 ## 4. Results
 
-| Model | CV household acc. (train, 5-fold grouped) | Test errors / 608 |
-|---|---|---|
-| Dummy (majority) | 0.8375 | 103 |
-| Logistic Regression | 0.9727 | 14 |
-| KNN (k=25) | 0.9794 | 10 |
-| Decision Tree | 0.9895 | 8 |
-| Random Forest / Extra Trees | 0.9882 / 0.9861 | 7 / 7 |
-| HistGB / XGBoost / LightGBM / CatBoost | 0.9895 / 0.9903 / 0.9882 / 0.9899 | 8 / 7 / 7 / 7 |
-| Tuned LightGBM / XGBoost / CatBoost / Extra Trees | 0.9895 / 0.9882 / 0.9870 / 0.9887 | 7 each |
-| Soft-voting ensemble | 0.9887 | 7 |
-| **Stacking ensemble** (threshold 0.45) | **0.9912** | **5** |
-
-* Tree ensembles clearly beat linear, distance-based and baseline models. Among the top models, CV differences are
-  only a few households (within noise); the stacking ensemble is at least as good in CV and made the fewest test errors.
-* **Tuning did not improve the boosting models** (searching on a 25% household subsample chose slower learners that
-  under-fit at full scale) — discussed in notebook 02 §2.
-* **Error analysis** (notebook 02 §5): all 5 test errors are missed solar homes (no false alarms). They are a home with
-  only 3 days of data, a very small exporter (93 kWh in 88 days), short post-installation periods, and one home whose
-  import shape barely changes despite exporting (likely battery/hybrid system). Households with > 30 days of data:
-  **99.66%** (2 errors / 582).
-* **SHAP / LIME**: predictions are driven by *how low daytime import gets relative to the rest of the day*
-  (`daytime_min_to_night_min`, `daytime_min_share`) — the physical solar signature — consistently for the base learner
-  and the full ensemble.
-
-### Why not 99.97%?
-On the test set, 99.97% would mean fewer than one error in 608 household-periods. The remaining errors are genuinely
-hard cases (a few days of data, tiny or battery-backed systems), and the label itself has physical limits (an off-grid
-system never exports). We report the honest held-out score rather than tuning to the test set.
+*Filled in after training on the real data: `reports/model_comparison.csv`, `reports/metrics.json`,
+`reports/fairness.csv`, `reports/explain/`.*
 
 ## 5. Project layout
 
 ```
-src/        download.py · data.py (pipeline) · features.py · model.py · train.py · explain.py
+src/        hies.py (data + label) · features.py · model.py · train.py · explain.py
             drift.py (PSI monitoring) · quality_gate.py · track.py (MLflow/Azure ML) · mlflow_model.py
-notebooks/  01_eda.ipynb · 02_modelling_and_explainability.ipynb   (executed, with outputs)
-app/        server.py (JSON API) · index.html (the page) · sample_meter_readings.csv
-models/     solar_detector.joblib (stacking ensemble + threshold) · metadata.json · reference_stats.json
-reports/    metrics.json · model_comparison.csv · best_params.json · test predictions · explain/ · figures/
-dvc.yaml    pipeline stages (download → build → train → explain) · params.yaml · dvc.lock
+app/        server.py (JSON API) · index.html (the page) · code_labels.json (names of HIES answer codes)
+models/     poverty_targeter.joblib · metadata.json · form_defaults.json · reference_stats.json
+reports/    metrics.json · model_comparison.csv · fairness.csv · label_check_vs_dcs.csv · explain/
+dvc.yaml    pipeline stages (build → train → explain) · params.yaml · dvc.lock
 infra/      azure_setup.sh (creates all Azure resources) · azure.env (resource names/IDs, no secrets)
-tests/      features, saved-model behaviour, drift and quality-gate tests
+tests/      pipeline, model, app, drift and quality-gate tests on synthetic HIES-shaped data
 .github/    ci.yml · deploy.yml · retrain.yml · monitor.yml
-MAINTENANCE.md  runbook: retrain, roll back, monitor, costs, clean-up
 ```
 
 ## 6. Reproduce
 
+1. Register at [Lanka Datta](https://nada.statistics.gov.lk), download the HIES 2019 files (catalog 476) and put them
+   in `data/raw/hies2019/` (CSV, SPSS or Stata all work).
+2. Then:
+
 ```bash
 python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt -r requirements-mlops.txt
-dvc repro            # download → build (~1 min) → train (~50 min) → explain (~10 min); reruns only what changed
+dvc repro            # build → train → explain; reruns only what changed
 pytest -q
 python app/server.py      # opens http://127.0.0.1:8000
 ```
 
 ## 7. MLOps
 
-The full lifecycle runs on GitHub Actions + Azure (East Asia), with **no stored passwords or keys** — GitHub logs in
-to Azure through OIDC as a managed identity limited to one resource group. Day-to-day operation is described in
+The lifecycle runs on GitHub Actions + Azure (East Asia) with **no stored passwords or keys**: GitHub logs in to
+Azure through OIDC as a managed identity limited to one resource group. The Azure resource names keep their original
+`solar` prefix from the first version of this project. Day-to-day operation is described in
 [MAINTENANCE.md](MAINTENANCE.md).
 
 | Practice | Implementation |
 |---|---|
-| Data versioning & lineage | **DVC** pipeline (`dvc.yaml`, `params.yaml`, `dvc.lock`) with an **Azure Blob Storage** remote |
-| Experiment tracking | **MLflow on Azure Machine Learning** — one run per training, a child run per model compared, explanations and the packaged model as artifacts |
-| Model registry | Azure ML registry `solar-detector` (v1, v2, …) tagged `candidate` / `production` / `archived` with image tag, git SHA and data hash |
-| Continuous integration | `ci.yml` — pinned dependencies, 15 tests, Docker build + container health check |
-| Continuous delivery | `deploy.yml` — image to **Azure Container Registry** (tagged by commit), roll out to **Azure Container Apps**, live health check, registry update; one-click rollback to any earlier tag |
-| Continuous training | `retrain.yml` — `dvc repro`, drift report, **quality gate** (new model must not be worse), candidate registered, result pushed to a review branch |
-| Monitoring | app logs one JSON line per prediction (no personal data) to **Log Analytics**; `monitor.yml` checks uptime and summarises usage daily; PSI drift report on retraining |
-| Infrastructure as code | `infra/azure_setup.sh` recreates every Azure resource; `az group delete -n rg-solar-detector` removes them |
+| Data versioning & lineage | **DVC** pipeline (`dvc.yaml`, `params.yaml`, `dvc.lock`) with a private **Azure Blob Storage** remote for the microdata |
+| Experiment tracking | **MLflow on Azure Machine Learning**: one run per training, a child run per model compared, explanations and the packaged model as artifacts |
+| Model registry | Azure ML registry `poverty-targeter` tagged `candidate` / `production` / `archived` with image tag, git SHA and data hash |
+| Continuous integration | `ci.yml`: pinned dependencies, tests on synthetic data, Docker build + container health check |
+| Continuous delivery | `deploy.yml`: image to **Azure Container Registry**, roll out to **Azure Container Apps**, live health check; one-click rollback |
+| Continuous training | `retrain.yml`: `dvc repro`, drift report, **quality gate** (new model must not be worse), candidate registered, result pushed to a review branch |
+| Monitoring | the app logs one JSON line per prediction (score and decision only, never a household's answers) to **Log Analytics**; `monitor.yml` checks uptime daily |
 
-## 8. Limitations
-One utility area and period; solar systems that never export (off-grid, full battery) are labelled non-solar by
-definition; households with very few days of data are less reliable; the model detects *presence*, not system size.
+## 8. Limitations and ethics (summary)
+The public file is a 25% sample of one year (2019), before the 2022 economic crisis roughly doubled poverty, so the
+model would need re-training on a newer survey before real use. Consumption is self-reported over a short period.
+A model like this should support an officer's decision, never replace it: wrongly excluding a poor family causes
+real harm, so flagged and borderline households need verification and an appeal route.

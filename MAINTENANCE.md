@@ -1,6 +1,6 @@
 # Maintenance guide (MLOps runbook)
 
-How to run, update, monitor and roll back the rooftop-solar detector. Everything below is done from GitHub
+How to run, update, monitor and roll back the HIES poverty-targeting model. Everything below is done from GitHub
 (Actions tab) or the Azure portal — no passwords or keys are stored anywhere: GitHub logs in to Azure with
 OIDC as the managed identity `id-solar-github`, which only has rights inside `rg-solar-detector`.
 
@@ -36,7 +36,7 @@ flowchart LR
 | Code, model, pipeline definition | GitHub repo | `dvc.yaml` (stages), `params.yaml` (settings), `dvc.lock` (exact data/code hashes of the current model) |
 | Data versions | Azure Blob `stsolar99c8f7/dvc` | DVC remote: every dataset version, content-addressed |
 | Experiment tracking | Azure ML `mlw-solar-detector` → **Jobs** | Every training as an MLflow run, with a child run per model compared |
-| Model registry | Azure ML → **Models** → `solar-detector` | Versions v1, v2, …; tag `stage` = `candidate` / `production` / `archived`, plus `image_tag`, `git_sha`, `data_md5` |
+| Model registry | Azure ML → **Models** → `poverty-targeter` | Versions v1, v2, …; tag `stage` = `candidate` / `production` / `archived`, plus `image_tag`, `git_sha`, `data_md5` |
 | App images | Container Registry `acrsolar99c8f7` | `solar-detector:<short commit sha>` — every deployed version, for rollback |
 | Live app | Container App `ca-solar` | Public HTTPS URL (in `infra/azure.env`), scales to zero when idle |
 | Logs & monitoring | Log Analytics `log-solar-detector` | Container logs + one JSON line per prediction |
@@ -63,7 +63,7 @@ flowchart LR
 Edit `params.yaml`, then run **Retrain**. `dvc params diff` in the summary shows what changed.
 
 ### Roll back to an earlier version
-1. Find the image tag of the good version: Azure ML → Models → `solar-detector` → version → tag `image_tag`
+1. Find the image tag of the good version: Azure ML → Models → `poverty-targeter` → version → tag `image_tag`
    (or Container Registry → Repositories → `solar-detector`).
 2. Actions → **Deploy** → *Run workflow* → enter that tag. The app switches back without rebuilding.
 3. To make the rollback permanent, revert the model commit on `main`.
@@ -79,7 +79,7 @@ Edit `params.yaml`, then run **Retrain**. `dvc params diff` in the summary shows
   ```
 
 ### Compare experiments
-Azure ML studio (ml.azure.com) → workspace `mlw-solar-detector` → **Jobs** → experiment `solar-detector`
+Azure ML studio (ml.azure.com) → workspace `mlw-solar-detector` → **Jobs** → experiment `poverty-targeter`
 → select runs → *Compare*. Each training run contains the 16 model runs as children, the explanations
 (`explain/`) and the packaged model (`model/`).
 

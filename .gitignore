@@ -14,3 +14,12 @@ catboost_info/
 .claude/
 reports/drift.json
 mlruns/
+
+# Assignment report (kept local, not pushed)
+reports/AML_Assignment2_Report.*
+
+# Walkthrough video and voice-over script (kept local)
+video/
+data/candidates/
+data/codebook/
+data/reference/

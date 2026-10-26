@@ -21,7 +21,8 @@ jobs:
           cache: pip
       - name: Install dependencies
         run: pip install -r requirements.txt
-      - name: Run tests (feature pipeline + saved-model behaviour)
+      # Tests run the whole pipeline on synthetic HIES-shaped files (the real microdata is never in git).
+      - name: Run tests (data pipeline, NGBoost, explanations, web app)
         run: pytest -q
 
   docker:
@@ -31,9 +32,16 @@ jobs:
       - uses: actions/checkout@v4
         with:
           lfs: true
+      - name: Is a trained model committed?
+        id: model
+        run: |
+          if [ -f models/poverty_targeter.joblib ]; then echo "present=true" >> "$GITHUB_OUTPUT"
+          else echo "No trained model committed yet, so the image build is skipped."; fi
       - name: Build app image
+        if: steps.model.outputs.present == 'true'
         run: docker build -t solar-detector:ci .
       - name: Smoke-test the container
+        if: steps.model.outputs.present == 'true'
         run: |
           docker run -d -p 8501:8501 --name app solar-detector:ci
           for i in $(seq 1 30); do

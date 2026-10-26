@@ -1,13 +1,16 @@
 # Pipeline parameters tracked by DVC (`dvc params diff` compares them between versions).
 data:
-  export_threshold_kwh: 1.0   # a household "has solar" if it exported more than this
-  first_export_kwh: 0.1       # a day with more export than this marks the system as installed
-  min_steps_per_day: 90       # of 96 fifteen-minute readings; fewer = incomplete day, dropped
+  poverty_line: 6966          # Rs per person per month, DCS official (updated) poverty line 2019
+  # Scale factors that turn the recorded food / non-food values into a monthly amount.
+  # Checked against the DCS published poverty rates (reports/label_check_vs_dcs.csv) once the data is in.
+  food_factor: 1.0
+  nonfood_factor: 1.0
 
 train:
-  trials: 15                  # Optuna trials per tuned model family
-  tune_households: 0.25       # share of training households used for the hyperparameter search
+  seed: 42
+  test_share: 0.2             # share of PSUs (survey clusters) held out as the test set
+  cv_folds: 5                 # grouped by PSU on the training households
 
 quality_gate:
-  min_hh_accuracy: 0.985      # a new model must reach at least this held-out household accuracy
-  max_drop: 0.003             # and may not be worse than the current model by more than this
+  min_test_pr_auc: 0.40       # a new model must reach at least this held-out PR-AUC for the poor class
+  max_drop: 0.02              # and may not be worse than the current model by more than this

@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Rooftop Solar Detector</title>
+<title>Poverty Screener</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
@@ -168,6 +168,8 @@
   .legend { display: flex; justify-content: space-between; font-size: 11px; color: var(--ink-3); margin: 2px 0 8px; }
   .legend b { font-weight: 700; }
   .empty { color: var(--ink-3); font-size: 13.5px; padding: 8px 0; }
+  .shapes { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 4px 14px; }
+  .tabs { flex-wrap: wrap; }
 
   .upload { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin: 4px 0 6px; }
   .upload input[type=file] { position: absolute; width: 1px; height: 1px; opacity: 0; }
@@ -185,19 +187,23 @@
   .tbl td { border-top: 1px solid var(--hair); padding: 7px 8px 7px 0; }
   .tbl td:last-child, .tbl th:last-child { text-align: right; }
   .note { font-size: 13px; color: var(--ink-2); margin-top: 10px; }
+  .qs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 12px; margin-bottom: 4px; }
+  @media (max-width: 520px) { .qs { grid-template-columns: 1fr; } }
+  .verdict h3.solar { color: var(--bad); }
+  @media (min-width: 961px) { .grid > section:last-child { position: sticky; top: 96px; } }
 </style>
 </head>
 <body>
 <div class="wrap">
   <header class="band">
     <div>
-      <span class="eyb">Smart-meter analytics · Sri Lanka</span>
-      <h1>Rooftop <em>Solar</em> Detector</h1>
+      <span class="eyb">Welfare targeting · Sri Lanka · HIES 2019</span>
+      <h1>Aswesuma <em>Poverty</em> Screener</h1>
     </div>
     <div class="stats">
-      <div class="stat"><b id="stAcc">–</b><span>Household accuracy</span></div>
-      <div class="stat"><b id="stErr">–</b><span>Test errors</span></div>
-      <div class="stat"><b id="stAuc">–</b><span>AUC</span></div>
+      <div class="stat"><b id="stPr">–</b><span>Test PR-AUC</span></div>
+      <div class="stat"><b id="stAuc">–</b><span>Test ROC-AUC</span></div>
+      <div class="stat"><b id="stExcl">–</b><span>Poor missed</span></div>
       <button class="btn tables" id="modelBtn">Model</button>
     </div>
   </header>
@@ -206,232 +212,190 @@
     <div class="head"><h2>The model</h2><button class="btn ghost" id="modelClose">Close</button></div>
     <p class="sub" id="modelName"></p>
     <table class="tbl">
-      <thead><tr><th>Base learner</th><th>Type</th><th>Stacking weight</th></tr></thead>
-      <tbody id="weights"></tbody>
+      <thead><tr><th>Model (same test households)</th><th>PR-AUC</th><th>ROC-AUC</th><th>F1</th></tr></thead>
+      <tbody id="baselines"></tbody>
     </table>
     <p class="note" id="modelNote"></p>
   </dialog>
 
   <main class="grid">
     <section class="card">
-      <div class="head"><h2>One day of grid import</h2><span class="eyb">kWh per hour</span></div>
-      <label class="label" for="preset">Start from</label>
-      <select class="field" id="preset"></select>
-      <div class="hours" id="hours"></div>
-      <button class="btn primary" id="predictBtn">Predict</button>
-      <p class="sub" style="margin-top:8px">Shaded hours (09:00–15:00) are when panels produce; a solar home imports almost nothing then.</p>
+      <div class="head"><h2>Household visit</h2><span class="eyb">What the officer sees</span></div>
+      <div id="form"></div>
+      <button class="btn primary" id="predictBtn">Assess household</button>
+      <p class="sub" style="margin-top:8px">Questions not shown keep the value of a typical surveyed household.
+        Income and spending are never asked: the model infers them from what can be observed.</p>
+      <div class="msg" id="msg"></div>
     </section>
 
     <section class="card">
-      <div class="head"><h2>Prediction</h2><span class="eyb">Stacking ensemble</span></div>
+      <div class="head"><h2>Assessment</h2><span class="eyb">NGBoost</span></div>
       <div class="verdict">
         <h3 id="verdict">–</h3>
-        <div class="pct"><b id="pSolar">–</b><span>P(solar)</span></div>
+        <div class="pct"><b id="pct">–</b><span>Chance of being poor</span></div>
       </div>
-      <div class="meter"><i id="meterFill"></i><span class="thr" id="meterThr"></span></div>
-      <div class="scale"><span>0%</span><span id="thrLabel">threshold</span><span>100%</span></div>
-      <div class="section"><span class="k">This day's import</span>
-        <svg class="chart" id="profile" viewBox="0 0 520 150" role="img" aria-label="Hourly import chart"></svg>
-      </div>
-      <p class="msg" id="dMsg"></p>
-    </section>
+      <div class="meter"><i id="bar"></i><span class="thr" id="thr"></span></div>
+      <div class="scale"><span>0%</span><span id="thrLabel"></span><span>100%</span></div>
 
-    <section class="card">
-      <div class="head"><h2>Why this prediction</h2><span class="eyb">Explainability</span></div>
-      <div class="tabs">
-        <button class="chip accent" data-tab="shap">SHAP</button>
-        <button class="chip" data-tab="lime">LIME</button>
+      <div class="section">
+        <span class="k">Predicted spending per person per month</span>
+        <p id="spend" class="empty">Fill in the visit and press Assess.</p>
+        <svg class="chart" id="range" viewBox="0 0 600 70"></svg>
       </div>
-      <div class="legend"><span>← <b>away from solar</b></span><span><b>towards solar</b> →</span></div>
-      <div id="why"><p class="empty">Press Predict to see which features drove the result.</p></div>
-      <p class="sub" id="whyNote" style="margin-top:8px"></p>
-    </section>
 
-    <section class="card">
-      <div class="head"><h2>Check a household</h2><span class="eyb">Upload meter readings</span></div>
-      <p class="sub">A CSV with columns <b>timestamp</b> and <b>import_kwh</b> (the cumulative import register, every 15 minutes). One day can be ambiguous, so the household verdict averages all complete days.</p>
-      <div class="upload">
-        <label class="btn ghost" for="csvFile">Choose CSV</label>
-        <input type="file" id="csvFile" accept=".csv,text/csv">
-        <button class="btn ghost" id="sampleBtn">Use sample household</button>
-        <span class="sub" id="fileName"></span>
+      <div class="section">
+        <div class="tabs">
+          <button class="chip accent" id="tabShap">Why (SHAP)</button>
+          <button class="chip" id="tabLime">Check with LIME</button>
+        </div>
+        <div class="legend"><span><b>◀ away from poverty</b></span><span><b>towards poverty ▶</b></span></div>
+        <div class="why" id="why"><p class="empty">–</p></div>
       </div>
-      <div id="hhOut"></div>
-      <p class="msg" id="hMsg"></p>
+      <p class="note">This is decision support for an officer, not a decision. A household flagged here should be
+        verified, and every household can appeal.</p>
     </section>
   </main>
 </div>
 
 <script>
 const $ = id => document.getElementById(id);
-const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
-const pct = p => (p * 100).toFixed(1) + '%';
-const SUN = [9, 10, 11, 12, 13, 14, 15];
-const KIND = { extra_trees: 'Bagging', lightgbm: 'Boosting', xgboost: 'Boosting', catboost: 'Boosting' };
-const NAME = { extra_trees: 'Extra Trees', lightgbm: 'LightGBM', xgboost: 'XGBoost', catboost: 'CatBoost' };
-let info = null;
-let lastHours = null;
-let tab = 'shap';
-let lastWhy = null;
+const rs = v => 'Rs ' + Math.round(v).toLocaleString('en-LK');
+let INFO = null, mode = 'shap', last = null;
 
-async function api(path, body) {
-  const res = await fetch(path, body ? {
-    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body)
-  } : {});
-  return res.json();
+function input(f) {
+  let el;
+  if (f.type === 'select') {
+    el = document.createElement('select');
+    el.className = 'field';
+    for (const o of f.options) el.add(new Option(o.label, o.value, false, o.value === f.default));
+  } else if (f.type === 'yesno') {
+    el = document.createElement('select');
+    el.className = 'field';
+    el.add(new Option('No', 0, false, !f.default));
+    el.add(new Option('Yes', 1, false, !!f.default));
+  } else {
+    el = document.createElement('input');
+    el.className = 'field'; el.type = 'number'; el.min = 0; el.step = 'any'; el.value = f.default;
+  }
+  el.id = 'f_' + f.name;
+  return el;
 }
 
-function show(id, msg, ok) {
-  $(id).textContent = msg;
-  $(id).classList.remove('ok', 'bad');
-  if (msg) $(id).classList.add(ok ? 'ok' : 'bad');
+function buildForm(fields) {
+  const form = $('form');
+  let section = null, grid = null;
+  for (const f of fields) {
+    if (f.section !== section) {
+      section = f.section;
+      const h = document.createElement('span');
+      h.className = 'k'; h.textContent = section; h.style.display = 'block'; h.style.margin = '10px 0 6px';
+      grid = document.createElement('div');
+      grid.className = 'qs';
+      form.append(h, grid);
+    }
+    const wrap = document.createElement('div');
+    const lab = document.createElement('label');
+    lab.className = 'label'; lab.htmlFor = 'f_' + f.name; lab.textContent = f.label;
+    wrap.append(lab, input(f));
+    grid.append(wrap);
+  }
 }
 
-// ---------- hour inputs
-function buildHours() {
-  $('hours').innerHTML = info.hours.map((h, i) => {
-    const sun = SUN.includes(i) ? ' sun' : '';
-    return `<div><label class="${sun.trim()}" for="h${i}">${String(i).padStart(2, '0')}:00</label>
-      <input class="field${sun}" id="h${i}" type="number" min="0" max="50" step="0.01" inputmode="decimal"></div>`;
-  }).join('');
-}
-const readHours = () => info.hours.map((_, i) => Number($('h' + i).value || 0));
-function setHours(values) { values.forEach((v, i) => $('h' + i).value = v); }
-
-// ---------- charts (plain SVG)
-function profileChart(values) {
-  const W = 520, H = 150, L = 34, B = 22, T = 8, max = Math.max(0.05, ...values) * 1.1;
-  const bw = (W - L - 6) / 24, y = v => T + (H - T - B) * (1 - v / max);
-  let s = `<rect x="${L + 9 * bw}" y="${T}" width="${7 * bw}" height="${H - T - B}" fill="#FBEFD9"/>`;
-  [0, max / 2, max].forEach(t => s += `<line x1="${L}" x2="${W}" y1="${y(t)}" y2="${y(t)}" stroke="#E4DCCD"/>
-    <text x="${L - 6}" y="${y(t) + 3}" text-anchor="end">${t.toFixed(2)}</text>`);
-  values.forEach((v, i) => {
-    s += `<rect x="${L + i * bw + 2}" y="${y(v)}" width="${bw - 4}" height="${Math.max(0, H - B - y(v))}" rx="2" fill="${SUN.includes(i) ? '#E8A33D' : '#5170FF'}"><title>${String(i).padStart(2, '0')}:00 — ${v} kWh</title></rect>`;
-    if (i % 3 === 0) s += `<text x="${L + i * bw + bw / 2}" y="${H - 6}" text-anchor="middle">${String(i).padStart(2, '0')}</text>`;
-  });
-  return s;
+function values() {
+  const v = {};
+  for (const f of INFO.fields) v[f.name] = Number($('f_' + f.name).value);
+  return v;
 }
 
-function dayChart(days, thr) {
-  const W = 520, H = 150, L = 34, B = 22, T = 8, n = days.length;
-  const x = i => L + (W - L - 10) * (n === 1 ? 0.5 : i / (n - 1)), y = p => T + (H - T - B) * (1 - p);
-  let s = '';
-  [0, 0.5, 1].forEach(t => s += `<line x1="${L}" x2="${W}" y1="${y(t)}" y2="${y(t)}" stroke="#E4DCCD"/>
-    <text x="${L - 6}" y="${y(t) + 3}" text-anchor="end">${Math.round(t * 100)}%</text>`);
-  s += `<line x1="${L}" x2="${W}" y1="${y(thr)}" y2="${y(thr)}" stroke="#C2554A" stroke-dasharray="4 4"/>
-    <text x="${W}" y="${y(thr) - 4}" text-anchor="end" style="fill:#C2554A">threshold ${Math.round(thr * 100)}%</text>`;
-  s += `<polyline fill="none" stroke="#9AA5B1" stroke-width="1" points="${days.map((d, i) => `${x(i)},${y(d.p)}`).join(' ')}"/>`;
-  days.forEach((d, i) => s += `<circle cx="${x(i)}" cy="${y(d.p)}" r="3" fill="${d.p >= thr ? '#E8A33D' : '#5170FF'}"><title>${d.day}: ${pct(d.p)}</title></circle>`);
-  const ticks = n > 1 ? [0, Math.floor((n - 1) / 2), n - 1] : [0];
-  ticks.forEach(i => s += `<text x="${x(i)}" y="${H - 6}" text-anchor="middle">${days[i].day.slice(5)}</text>`);
-  return s;
+async function post(url, body) {
+  const r = await fetch(url, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)});
+  return r.json();
 }
 
-// ---------- prediction
-function showVerdict(el, p, solar) {
-  el.textContent = solar ? 'Solar installed' : 'No solar';
-  el.className = solar ? 'solar' : 'none';
+function bars(items) {
+  const why = $('why');
+  why.innerHTML = '';
+  const max = Math.max(...items.map(i => Math.abs(i.score)), 1e-9);
+  for (const i of items) {
+    const name = document.createElement('div');
+    name.className = 'name'; name.textContent = i.label;
+    const d = document.createElement('div');
+    d.className = 'div';
+    const b = document.createElement('i');
+    b.className = i.score > 0 ? 'pos' : 'neg';
+    b.style.width = (50 * Math.abs(i.score) / max) + '%';
+    d.append(b);
+    why.append(name, d);
+  }
 }
 
-async function predict() {
-  lastHours = readHours();
+function range(r) {
+  const lo = Math.min(r.low, INFO.povertyLine) * 0.8, hi = Math.max(r.high, INFO.povertyLine) * 1.15;
+  const x = v => 20 + 560 * (Math.log(v) - Math.log(lo)) / (Math.log(hi) - Math.log(lo));
+  const z = x(INFO.povertyLine);
+  $('range').innerHTML =
+    `<rect x="${x(r.low)}" y="22" width="${x(r.high) - x(r.low)}" height="14" rx="7" fill="var(--accent-soft)"/>` +
+    `<circle cx="${x(r.pc)}" cy="29" r="6" fill="var(--blue-500)"/>` +
+    `<line x1="${z}" x2="${z}" y1="12" y2="46" stroke="var(--bad)" stroke-width="2"/>` +
+    `<text x="${z}" y="60" text-anchor="middle">poverty line ${rs(INFO.povertyLine)}</text>` +
+    `<text x="${x(r.low)}" y="14" text-anchor="middle">${rs(r.low)}</text>` +
+    `<text x="${x(r.high)}" y="14" text-anchor="middle">${rs(r.high)}</text>`;
+}
+
+async function assess() {
   $('predictBtn').disabled = true;
-  const r = await api('/api/predict', { hours: lastHours });
-  $('predictBtn').disabled = false;
-  if (!r.ok) return show('dMsg', r.message, false);
-  show('dMsg', '', true);
-  showVerdict($('verdict'), r.p, r.solar);
-  $('pSolar').textContent = pct(r.p);
-  $('meterFill').style.width = pct(r.p);
-  $('meterFill').className = r.solar ? 'solar' : '';
-  $('profile').innerHTML = profileChart(lastHours);
-  lastWhy = r.why;
-  if (tab === 'shap') renderShap(); else loadLime();
+  try {
+    const r = await post('/api/predict', {values: values()});
+    if (!r.ok) { $('msg').className = 'msg bad'; $('msg').textContent = r.message; return; }
+    $('msg').className = 'msg';
+    last = r;
+    $('verdict').textContent = r.flag ? 'Likely eligible' : 'Likely not eligible';
+    $('verdict').className = r.flag ? 'solar' : 'none';
+    $('pct').textContent = Math.round(100 * r.p) + '%';
+    $('bar').style.width = (100 * r.p) + '%';
+    $('bar').className = r.flag ? 'solar' : '';
+    $('spend').className = '';
+    $('spend').textContent = `${rs(r.pc)} (80% range ${rs(r.low)} – ${rs(r.high)})`;
+    range(r);
+    mode === 'shap' ? bars(r.why) : await lime();
+  } finally {
+    $('predictBtn').disabled = false;
+  }
 }
 
-function bars(rows, key, scaleOf) {
-  const m = Math.max(...rows.map(r => Math.abs(r[key])), 1e-9);
-  return `<div class="why">${rows.map(r => {
-    const w = Math.abs(r[key]) / m * 50;
-    return `<div class="name">${scaleOf(r)}</div>
-      <div class="div" title="${r[key]}"><i class="${r[key] >= 0 ? 'pos' : 'neg'}" style="width:${w}%"></i></div>`;
-  }).join('')}</div>`;
+async function lime() {
+  $('why').innerHTML = '<p class="empty">Running LIME…</p>';
+  const r = await post('/api/lime', {values: values()});
+  if (r.ok) bars(r.rules);
 }
 
-function renderShap() {
-  if (!lastWhy) return;
-  $('why').innerHTML = bars(lastWhy, 'shap', r => `${esc(r.label)}<small>value ${r.value}</small>`);
-  $('whyNote').textContent = `Tree SHAP on the ${NAME[info.shapModel]} base learner (log-odds). Longer bar = stronger effect.`;
+function tab(m) {
+  mode = m;
+  $('tabShap').className = 'chip' + (m === 'shap' ? ' accent' : '');
+  $('tabLime').className = 'chip' + (m === 'lime' ? ' accent' : '');
+  if (last) m === 'shap' ? bars(last.why) : lime();
 }
 
-async function loadLime() {
-  if (!lastHours) return;
-  $('why').innerHTML = '<p class="empty">Fitting a local surrogate model…</p>';
-  const r = await api('/api/lime', { hours: lastHours });
-  if (!r.ok) { $('why').innerHTML = `<p class="empty">${esc(r.message)}</p>`; return; }
-  $('why').innerHTML = bars(r.rules, 'weight', x => esc(x.rule));
-  $('whyNote').textContent = 'LIME on the full stacking ensemble: a simple model fitted around this one day.';
-}
-
-document.querySelector('.tabs').addEventListener('click', e => {
-  const b = e.target.closest('[data-tab]');
-  if (!b) return;
-  tab = b.dataset.tab;
-  document.querySelectorAll('.tabs .chip').forEach(c => c.classList.toggle('accent', c === b));
-  if (tab === 'shap') renderShap(); else loadLime();
-});
-
-// ---------- household upload
-async function checkHousehold(csv, name) {
-  $('fileName').textContent = name;
-  $('hhOut').innerHTML = '<p class="empty">Reading meter data…</p>';
-  show('hMsg', '', true);
-  const r = await api('/api/household', { csv });
-  if (!r.ok) { $('hhOut').innerHTML = ''; return show('hMsg', r.message, false); }
-  $('hhOut').innerHTML = `
-    <div class="result">
-      <div><span class="k">Household verdict</span><div class="verdict" style="padding:2px 0 0"><h3 id="hhVerdict"></h3></div></div>
-      <div class="pct"><b>${pct(r.p)}</b><span>mean P(solar) · ${r.nDays} days</span></div>
-    </div>
-    <div class="section"><span class="k">Day by day</span><svg class="chart" viewBox="0 0 520 150">${dayChart(r.days, info.threshold)}</svg></div>
-    <div class="section"><span class="k">Average day</span><svg class="chart" viewBox="0 0 520 150">${profileChart(r.profile)}</svg></div>`;
-  showVerdict($('hhVerdict'), r.p, r.solar);
-  show('hMsg', r.message, true);
-}
-
-$('csvFile').addEventListener('change', async e => {
-  const f = e.target.files[0];
-  if (f) checkHousehold(await f.text(), f.name);
-});
-$('sampleBtn').addEventListener('click', async () => {
-  const csv = await fetch('/api/sample').then(r => r.text());
-  checkHousehold(csv, 'sample_meter_readings.csv (held-out test household)');
-});
-
-// ---------- model sheet
-$('modelBtn').addEventListener('click', () => $('modelSheet').showModal());
-$('modelClose').addEventListener('click', () => $('modelSheet').close());
-
-// ---------- start
-api('/api/info').then(d => {
-  info = d;
-  $('stAcc').textContent = (d.accuracy * 100).toFixed(2) + '%';
-  $('stErr').textContent = `${d.errors} / ${d.n}`;
-  $('stAuc').textContent = d.auc.toFixed(4);
-  $('meterThr').style.left = pct(d.threshold);
-  $('thrLabel').textContent = `threshold ${Math.round(d.threshold * 100)}%`;
-  $('modelName').textContent = `${d.model} · version ${d.version} · trained ${d.trained}`;
-  $('weights').innerHTML = Object.entries(d.weights).sort((a, b) => b[1] - a[1]).map(([k, w]) =>
-    `<tr><td>${esc(NAME[k] || k)}</td><td>${KIND[k] || ''}</td><td>${w.toFixed(2)}</td></tr>`).join('');
-  $('modelNote').textContent = `Held-out test on 592 unseen households: ${(d.accuracy * 100).toFixed(2)}% accuracy (${d.errors} errors / ${d.n}), precision ${pct(d.precision)}, recall ${pct(d.recall)}, AUC ${d.auc.toFixed(4)}. Decision threshold ${d.threshold} was chosen on training households only. Export readings are never used as inputs.`;
-  $('preset').innerHTML = Object.keys(d.presets).map(k => `<option>${esc(k)}</option>`).join('');
-  buildHours();
-  setHours(d.presets[$('preset').value]);
-  predict();
-});
-$('preset').addEventListener('change', () => { setHours(info.presets[$('preset').value]); predict(); });
-$('predictBtn').addEventListener('click', predict);
-$('hours').addEventListener('keydown', e => { if (e.key === 'Enter') predict(); });
+(async () => {
+  INFO = await (await fetch('/api/info')).json();
+  buildForm(INFO.fields);
+  $('stPr').textContent = INFO.test.pr_auc.toFixed(2);
+  $('stAuc').textContent = INFO.test.roc_auc.toFixed(2);
+  $('stExcl').textContent = Math.round(100 * INFO.test.exclusion_error_at_budget) + '%';
+  $('thr').style.left = (100 * INFO.threshold) + '%';
+  $('thrLabel').textContent = 'flag at ' + Math.round(100 * INFO.threshold) + '%';
+  $('modelName').textContent = `${INFO.model}, trained on ${INFO.nTrain} HIES 2019 households (version ${INFO.version}).`;
+  $('baselines').innerHTML = INFO.baselines.map(b =>
+    `<tr><td>${b.model}</td><td>${b.test_pr_auc.toFixed(3)}</td><td>${b.test_roc_auc.toFixed(3)}</td><td>${b.test_f1.toFixed(3)}</td></tr>`).join('');
+  $('modelNote').textContent = `Poor = spending per person below the official poverty line (${rs(INFO.povertyLine)} a month, DCS 2019). ` +
+    `"Poor missed" = share of poor test households not selected when the budget covers as many households as are poor. ` +
+    `80% ranges contained the true spending for ${Math.round(100 * INFO.regression.coverage_80)}% of test households.`;
+  $('predictBtn').onclick = assess;
+  $('tabShap').onclick = () => tab('shap');
+  $('tabLime').onclick = () => tab('lime');
+  $('modelBtn').onclick = () => $('modelSheet').showModal();
+  $('modelClose').onclick = () => $('modelSheet').close();
+})();
 </script>
 </body>
 </html>
