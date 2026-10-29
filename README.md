@@ -104,7 +104,6 @@ dvc.yaml    pipeline stages (download → build → train → explain) · params
 infra/      azure_setup.sh (creates all Azure resources) · azure.env (resource names/IDs, no secrets)
 tests/      features, Rotation Forest, saved-model behaviour, app, drift and quality-gate tests
 .github/    ci.yml · deploy.yml · retrain.yml · monitor.yml
-MAINTENANCE.md  runbook: retrain, roll back, monitor, costs, clean-up
 ```
 
 ## 6. Reproduce
@@ -120,8 +119,7 @@ python app/server.py      # opens http://127.0.0.1:8000
 ## 7. MLOps
 
 The full lifecycle runs on GitHub Actions + Azure (East Asia), with **no stored passwords or keys** — GitHub logs in
-to Azure through OIDC as a managed identity limited to one resource group. Day-to-day operation is described in
-[MAINTENANCE.md](MAINTENANCE.md).
+to Azure through OIDC as a managed identity limited to one resource group.
 
 | Practice | Implementation |
 |---|---|
