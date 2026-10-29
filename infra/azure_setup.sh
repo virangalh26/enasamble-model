@@ -55,7 +55,7 @@ az identity show -g "$RG" -n "$ID_GH" -o none 2>/dev/null || az identity create 
 az identity show -g "$RG" -n "$ID_APP" -o none 2>/dev/null || az identity create -g "$RG" -n "$ID_APP" -o none
 # GitHub may send the subject with names only (repo:owner/repo) or, for newer repositories, with immutable IDs
 # (repo:owner@<owner id>/repo@<repo id>), so both forms are trusted. IDs: https://api.github.com/repos/<owner>/<repo>
-REPO_IDS="${REPO_IDS:-virangalh26@337202569/enasamble-model@1427262500}"
+REPO_IDS="${REPO_IDS:-virangalh26@337202569/enasamble-model@1438854570}"
 for pair in "gh-main:repo:${REPO}:ref:refs/heads/main" "gh-production:repo:${REPO}:environment:production" \
             "gh-main-id:repo:${REPO_IDS}:ref:refs/heads/main" "gh-production-id:repo:${REPO_IDS}:environment:production"; do
   name="${pair%%:*}"; subject="${pair#*:}"
