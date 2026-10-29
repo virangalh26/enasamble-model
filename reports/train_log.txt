@@ -1,0 +1,20 @@
+452,811 household-days, 2,925 households, 64 features
+train: 2333 households / test: 592 households
+[default] Dummy (majority)       CV hh_acc=0.8375 AUC=0.5000 | test hh_acc=0.8306 errors=103 (1s)
+[default] Logistic Regression    CV hh_acc=0.9727 AUC=0.9921 | test hh_acc=0.9770 errors=14 (9s)
+[default] KNN (k=25)             CV hh_acc=0.9794 AUC=0.9971 | test hh_acc=0.9836 errors=10 (33s)
+[default] Decision Tree          CV hh_acc=0.9895 AUC=0.9981 | test hh_acc=0.9868 errors=8 (79s)
+[default] Random Forest          CV hh_acc=0.9882 AUC=0.9990 | test hh_acc=0.9885 errors=7 (372s)
+[default] Extra Trees            CV hh_acc=0.9861 AUC=0.9983 | test hh_acc=0.9885 errors=7 (42s)
+[default] HistGradientBoosting   CV hh_acc=0.9895 AUC=0.9983 | test hh_acc=0.9868 errors=8 (29s)
+[default] XGBoost                CV hh_acc=0.9903 AUC=0.9984 | test hh_acc=0.9885 errors=7 (57s)
+[default] LightGBM               CV hh_acc=0.9882 AUC=0.9985 | test hh_acc=0.9885 errors=7 (55s)
+[default] CatBoost               CV hh_acc=0.9899 AUC=0.9986 | test hh_acc=0.9885 errors=7 (98s)
+[tuned]   LightGBM               best logloss=0.0799 CV hh_acc=0.9895 | test hh_acc=0.9885 errors=7 (370s)
+[tuned]   XGBoost                best logloss=0.0796 CV hh_acc=0.9882 | test hh_acc=0.9885 errors=7 (243s)
+[tuned]   CatBoost               best logloss=0.0899 CV hh_acc=0.9870 | test hh_acc=0.9885 errors=7 (287s)
+[tuned]   Extra Trees            best logloss=0.0938 CV hh_acc=0.9887 | test hh_acc=0.9885 errors=7 (542s)
+[ensemble] Soft-voting ensemble   CV hh_acc=0.9887 | test hh_acc=0.9885 errors=7
+[ensemble] Stacking ensemble (LR meta) CV hh_acc=0.9891 | test hh_acc=0.9901 errors=6
+Threshold (train OOF) = 0.45; test hh_acc=0.99178 errors=5/608
+Done in 48.1 min

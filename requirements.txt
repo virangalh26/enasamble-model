@@ -1,7 +1,7 @@
 # Full development environment: data pipeline, training, notebooks and tests.
 -r requirements-app.txt
 seaborn==0.13.2
-pyreadstat==1.3.7
+optuna==5.0.0
 pytest==9.1.1
 nbformat==5.11.1
 nbconvert==7.17.2

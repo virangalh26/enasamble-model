@@ -1,6 +1,6 @@
 name: Retrain
 
-# Continuous training: reproduce the DVC pipeline (HIES data -> household table -> NGBoost -> explanations),
+# Continuous training: reproduce the DVC pipeline (data -> features -> ensemble -> explanations),
 # check data drift, compare the new model with the current one (quality gate), log everything to
 # MLflow on Azure ML as a "candidate", version the data in Azure Blob (DVC), and push the result to a
 # branch `retrain/<run>` for review. Merging that branch into main deploys the new model.
@@ -8,10 +8,14 @@ name: Retrain
 on:
   workflow_dispatch:
     inputs:
-      poverty_line:
-        description: "Poverty line, Rs per person per month (DCS official 2019: 6966)"
+      trials:
+        description: "Optuna trials per model family"
         required: false
-        default: "6966"
+        default: "10"
+      redownload:
+        description: "Download the dataset again from Kaggle (otherwise the DVC-versioned copy is used)"
+        type: boolean
+        default: false
 
 permissions:
   id-token: write
@@ -46,20 +50,23 @@ jobs:
           cp reports/metrics.json /tmp/baseline_metrics.json
           cp models/reference_stats.json /tmp/baseline_reference.json
 
-      # The HIES microdata needs a Lanka Datta account, so it is never downloaded here: it is added once with
-      # `dvc add data/raw/hies2019 && dvc push` from a registered user's machine and pulled from Azure Blob.
       - name: Get versioned data from Azure Blob (DVC)
-        run: dvc pull data/raw/hies2019.dvc build
+        run: |
+          if [ "${{ inputs.redownload }}" = "true" ]; then
+            dvc repro -f download
+          else
+            dvc pull download build || dvc repro download
+          fi
 
       - name: Retrain (DVC pipeline)
         run: |
           python - <<'EOF'
           import yaml
           p = yaml.safe_load(open("params.yaml"))
-          p["data"]["poverty_line"] = float("${{ inputs.poverty_line }}")
+          p["train"]["trials"] = int("${{ inputs.trials }}")
           yaml.safe_dump(p, open("params.yaml", "w"), sort_keys=False)
           EOF
-          dvc repro -f build
+          dvc repro build
           dvc repro -f train
           dvc repro explain
           dvc params diff main --md >> "$GITHUB_STEP_SUMMARY" || true
@@ -87,7 +94,7 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git checkout -b "$BRANCH"
           git add params.yaml dvc.lock models reports
-          git commit -m "Retrained model (run ${{ github.run_number }}, poverty_line=${{ inputs.poverty_line }})"
+          git commit -m "Retrained model (run ${{ github.run_number }}, trials=${{ inputs.trials }})"
           git push origin "$BRANCH"
           {
             echo "### Next step"

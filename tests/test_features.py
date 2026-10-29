@@ -1,55 +1,53 @@
 import numpy as np
 import pandas as pd
 
-from src.features import AUDIT, CATEGORICAL, model_columns, to_matrix
-from src.hies import check_against_dcs, find_file, monthly_consumption
+from src.data import readings_to_days
+from src.features import FEATURE_NAMES, HOURS, make_features
 
 
-def test_one_row_per_household_with_label(pipeline):
-    hh = pipeline["households"]
-    assert not hh.duplicated(["psu", "snumber", "hhno"]).any()
-    assert set(hh["poor"].unique()) <= {0, 1}
-    assert ((hh["pc_consumption"] < 6966) == (hh["poor"] == 1)).all()
+def day(values):
+    return pd.DataFrame([values], columns=HOURS)
 
 
-def test_target_and_sensitive_columns_are_never_features(pipeline):
-    cols = model_columns(pipeline["households"])
-    for c in ["poor", "pc_consumption", "log_pc_consumption", "consumption_month", "weight", *AUDIT]:
-        assert c not in cols
+def test_feature_names_are_stable_and_import_only():
+    X = make_features(day([0.2] * 24))
+    assert list(X.columns) == FEATURE_NAMES
+    assert not any("export" in c for c in FEATURE_NAMES), "export readings must never be features"
+    assert "month" not in FEATURE_NAMES
 
 
-def test_matrix_is_numeric_and_aligns_to_training_columns(pipeline):
-    hh = pipeline["households"]
-    X = to_matrix(hh)
-    assert np.isfinite(X.to_numpy()).all()
-    assert any(c.startswith("district=") for c in X.columns)
-    one = to_matrix(hh.head(1), list(X.columns))
-    assert list(one.columns) == list(X.columns) and len(one) == 1
+def test_hour_shares_sum_to_one():
+    X = make_features(day(np.random.default_rng(0).uniform(0.1, 1.0, 24)))
+    shares = X[[f"{h}_share" for h in HOURS]].sum(axis=1)
+    assert np.allclose(shares, 1.0)
 
 
-def test_unseen_category_gives_all_zero_dummies(pipeline):
-    hh = pipeline["households"]
-    cols = list(to_matrix(hh).columns)
-    odd = hh.head(1).copy()
-    odd["walls"] = 99
-    X = to_matrix(odd, cols)
-    assert X[[c for c in cols if c.startswith("walls=")]].to_numpy().sum() == 0
+def test_zero_day_has_no_nans_or_infs():
+    X = make_features(day([0.0] * 24))
+    assert np.isfinite(X.to_numpy(dtype=float)).all()
 
 
-def test_monthly_consumption_adds_food_and_nonfood():
-    key = {"psu": [1, 1], "snumber": [1, 2], "hhno": [1, 1]}
-    food = pd.DataFrame({**key, "value": [100, 50], "inkind_value": [10, None]})
-    nonfood = pd.DataFrame({"psu": [1], "snumber": [1], "hhno": [1], "nf_value": [200], "nf_inkind_value": [0]})
-    c = monthly_consumption(food, nonfood, food_factor=2.0, nonfood_factor=1.0)
-    assert c.loc[(1, 1, 1)] == 2 * 110 + 200 and c.loc[(1, 2, 1)] == 100
+def test_solar_shape_scores_lower_midday_ratio():
+    solar = make_features(day([0.6] * 8 + [0.02] * 8 + [0.7] * 8))
+    flat = make_features(day([0.3] * 24))
+    assert solar["midday_to_night"].iloc[0] < flat["midday_to_night"].iloc[0]
+    assert solar["bowl_depth"].iloc[0] > flat["bowl_depth"].iloc[0]
 
 
-def test_find_file_ignores_suffix_and_prefers_csv(tmp_path):
-    (tmp_path / "SEC_8_HOUSING_25%.sav").write_bytes(b"")
-    (tmp_path / "SEC_8_HOUSING_25%.csv").write_text("a\n1\n")
-    assert find_file(tmp_path, "SEC_8_HOUSING").suffix == ".csv"
+def test_readings_to_days_builds_hourly_profiles():
+    ts = pd.date_range("2024-05-01 00:15", periods=96 * 2, freq="15min")
+    reg = np.cumsum(np.full(len(ts), 0.05)) + 1000.0
+    days = readings_to_days(pd.DataFrame({"timestamp": ts, "import_kwh": reg}))
+    # The first reading has no previous one, so day 1 has 95 clean steps (kept, >= 90) and day 2 has 96.
+    assert len(days) == 2
+    assert np.allclose(days[HOURS].sum(axis=1), [0.05 * 95, 0.05 * 96])
 
 
-def test_label_check_table_has_every_district(pipeline):
-    chk = check_against_dcs(pipeline["households"])
-    assert len(chk) == 26 and chk.loc["Sri Lanka", "dcs_pct"] == 11.9
+def test_readings_to_days_drops_glitches_and_incomplete_days():
+    ts = pd.date_range("2024-05-01 00:15", periods=96, freq="15min")
+    reg = np.cumsum(np.full(len(ts), 0.05)) + 1000.0
+    reg[50:] -= 500  # a meter reset: the negative jump must be discarded, not counted
+    days = readings_to_days(pd.DataFrame({"timestamp": ts, "import_kwh": reg}))
+    assert (days[HOURS].to_numpy() >= 0).all()
+    short = readings_to_days(pd.DataFrame({"timestamp": ts[:40], "import_kwh": reg[:40]}))
+    assert short.empty

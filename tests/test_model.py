@@ -1,39 +1,48 @@
-"""Behaviour of the trained NGBoost targeter (trained on synthetic data in the fixture)."""
+"""Behavioural tests for the saved model. Skipped when the model file is not present."""
 import json
+from pathlib import Path
 
 import joblib
-import numpy as np
 import pandas as pd
+import pytest
+
+from src.features import HOURS
+
+ROOT = Path(__file__).resolve().parents[1]
+MODEL = ROOT / "models" / "solar_detector.joblib"
+pytestmark = pytest.mark.skipif(not MODEL.exists(), reason="trained model not available")
+
+# Median hourly import of training days with and without solar (same values as the app presets).
+SOLAR = [0.429, 0.385, 0.361, 0.349, 0.359, 0.421, 0.312, 0.059, 0.001, 0.0, 0.0, 0.0,
+         0.0, 0.0, 0.0, 0.0, 0.047, 0.220, 0.424, 0.479, 0.497, 0.528, 0.540, 0.484]
+FLAT = [0.116, 0.111, 0.108, 0.107, 0.110, 0.120, 0.120, 0.100, 0.088, 0.087, 0.088,
+        0.091, 0.096, 0.097, 0.099, 0.099, 0.099, 0.105, 0.132, 0.148, 0.152, 0.150, 0.139, 0.123]
 
 
-def test_outputs_are_probabilities_with_ordered_interval(pipeline):
-    t = joblib.load(pipeline["models"] / "poverty_targeter.joblib")
-    out = t.predict(pipeline["households"])
-    assert out["p_poor"].between(0, 1).all()
-    assert (out["pc_low"] < out["pred_pc_consumption"]).all() and (out["pred_pc_consumption"] < out["pc_high"]).all()
-    assert set(out["flag_for_support"].unique()) <= {0, 1}
+@pytest.fixture(scope="module")
+def detector():
+    return joblib.load(MODEL)
 
 
-def test_p_poor_matches_the_normal_distribution(pipeline):
-    from scipy.stats import norm
-    t = joblib.load(pipeline["models"] / "poverty_targeter.joblib")
-    X = t.matrix(pipeline["households"].head(20))
-    mu, sigma = t.distribution(X)
-    assert np.allclose(t.p_poor_from_matrix(X), norm.cdf((np.log(t.poverty_line) - mu) / sigma))
+def test_typical_solar_day_is_flagged(detector):
+    p = detector.predict_day_proba(pd.DataFrame([SOLAR], columns=HOURS))[0]
+    assert p >= detector.threshold
 
 
-def test_poorer_households_get_higher_scores(pipeline):
-    t = joblib.load(pipeline["models"] / "poverty_targeter.joblib")
-    hh = pipeline["households"]
-    p = t.predict(hh)["p_poor"]
-    assert p[hh["poor"] == 1].mean() > p[hh["poor"] == 0].mean() + 0.2
+def test_typical_non_solar_day_is_not_flagged(detector):
+    p = detector.predict_day_proba(pd.DataFrame([FLAT], columns=HOURS))[0]
+    assert p < detector.threshold
 
 
-def test_reports_written(pipeline):
-    m = json.load(open(pipeline["reports"] / "metrics.json"))
-    assert 0 < m["test"]["pr_auc"] <= 1 and 0 < m["threshold"] < 1
-    assert 0 <= m["test_regression"]["coverage_80"] <= 1
-    comp = pd.read_csv(pipeline["reports"] / "model_comparison.csv")
-    assert comp["model"].str.startswith("NGBoost").sum() >= 2  # model + natural-gradient ablation
-    fair = pd.read_csv(pipeline["reports"] / "fairness.csv")
-    assert {"sector_name", "head_female"} <= set(fair["group"])
+def test_household_aggregation(detector):
+    days = pd.DataFrame([SOLAR, SOLAR, FLAT, FLAT], columns=HOURS)
+    days["hh"] = ["a", "a", "b", "b"]
+    out = detector.predict_household(days)
+    assert out.loc["a", "has_solar_pred"] == 1 and out.loc["b", "has_solar_pred"] == 0
+    assert (out["n_days"] == 2).all()
+
+
+def test_metadata_matches_model(detector):
+    meta = json.loads((ROOT / "models" / "metadata.json").read_text())
+    assert meta["features"] == detector.feature_names
+    assert abs(meta["threshold"] - detector.threshold) < 1e-9

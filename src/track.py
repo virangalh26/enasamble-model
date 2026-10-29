@@ -1,7 +1,7 @@
 """Experiment tracking and model registry on Azure Machine Learning (MLflow).
 
 Logs one training as an MLflow run (with a nested child run for every model compared), saves the
-explanations and the packaged model, and registers it as a new version of `poverty-targeter`.
+explanations and the packaged model, and registers it as a new version of `solar-detector`.
 It reads the files written by `src.train` / `src.explain`, so it never retrains anything, and it is
 idempotent: a model whose SHA-256 is already registered is only re-tagged.
 
@@ -20,9 +20,9 @@ import mlflow
 import pandas as pd
 from mlflow.tracking import MlflowClient
 
-MODEL_NAME = "poverty-targeter"
-EXPERIMENT = "poverty-targeter"
-MODEL_FILE = Path("models/poverty_targeter.joblib")
+MODEL_NAME = "solar-detector"
+EXPERIMENT = "solar-detector"
+MODEL_FILE = Path("models/solar_detector.joblib")
 
 
 def sha256(path: Path) -> str:
@@ -40,7 +40,7 @@ def data_version() -> str:
         return "unknown"
     import yaml
     for out in yaml.safe_load(lock.read_text())["stages"].get("build", {}).get("outs", []):
-        if out["path"].endswith("households.parquet"):
+        if out["path"].endswith("household_days.parquet"):
             return out.get("md5", "unknown")
     return "unknown"
 
@@ -61,36 +61,37 @@ def log_training(model_hash: str, git_sha: str) -> str:
     comp = pd.read_csv("reports/model_comparison.csv")
     best = json.load(open("reports/best_params.json"))
     mlflow.set_experiment(EXPERIMENT)
-    with mlflow.start_run(run_name=f"ngboost-{model_hash[:8]}") as run:
-        mlflow.set_tags({"model_sha256": model_hash, "git_sha": git_sha, "dataset": "HIES 2019 public 25% sample (DCS)",
-                         "data_md5": data_version(), "kind": "final-model"})
+    with mlflow.start_run(run_name=f"stacking-{model_hash[:8]}") as run:
+        mlflow.set_tags({"model_sha256": model_hash, "git_sha": git_sha, "dataset": "RECON-SL (LIRNEasia)",
+                         "data_md5": data_version(), "kind": "final-ensemble"})
         mlflow.log_params({"threshold": meta["threshold"], "n_features": len(meta["features"]),
-                           "algorithm": "ngboost_normal_log_consumption", "poverty_line": meta["poverty_line"],
-                           **{f"ngb_{k}": v for k, v in best["NGBoost"].items()}, "evaluation_unit": "household"})
-        mlflow.log_metrics({f"test_{k}": float(v) for k, v in meta["test"].items()})
-        mlflow.log_metrics({f"test_{k}": float(v) for k, v in meta["test_regression"].items()})
+                           "base_models": "lightgbm,xgboost,catboost,extra_trees", "meta_model": "logistic_regression",
+                           "evaluation_unit": "household-period", "export_threshold_kwh": meta["export_threshold_kwh"]})
+        mlflow.log_metrics({f"test_{k}": float(v) for k, v in meta["test_households"].items()})
+        mlflow.log_metrics({f"cv_{k}": float(v) for k, v in meta["cv_train_households"].items()})
 
         for row in comp.to_dict(orient="records"):
             with mlflow.start_run(run_name=row["model"], nested=True):
-                mlflow.set_tags({"family": row["family"], "model_sha256": model_hash})
-                if row["model"].startswith("NGBoost (Normal"):
-                    mlflow.log_params(best["NGBoost"])
+                family = row["model"].replace(" (tuned)", "")
+                mlflow.set_tags({"stage": row["stage"], "model_sha256": model_hash})
+                if row["stage"] == "tuned" and family in best:
+                    mlflow.log_params(best[family])
                 mlflow.log_metrics({k: float(v) for k, v in row.items() if k.startswith(("cv_", "test_"))})
                 mlflow.log_metric("train_seconds", float(row["seconds"]))
 
         for path in ["models/metadata.json", "reports/metrics.json", "reports/model_comparison.csv",
-                     "reports/best_params.json", "reports/fairness.csv", "models/reference_stats.json", "params.yaml"]:
+                     "reports/best_params.json", "models/reference_stats.json", "params.yaml"]:
             if Path(path).exists():
                 mlflow.log_artifact(path, "reports")
         if Path("reports/explain").exists():
             mlflow.log_artifacts("reports/explain", "explain")
 
-        # Package the targeter as an MLflow pyfunc model (saved locally, then uploaded as run artifacts).
-        from src.mlflow_model import PovertyTargeterModel
+        # Package the detector as an MLflow pyfunc model (saved locally, then uploaded as run artifacts).
+        from src.mlflow_model import SolarDetectorModel
         with tempfile.TemporaryDirectory() as tmp:
             mlflow.pyfunc.save_model(
-                path=f"{tmp}/model", python_model=PovertyTargeterModel(),
-                artifacts={"targeter": str(MODEL_FILE), "metadata": "models/metadata.json"},
+                path=f"{tmp}/model", python_model=SolarDetectorModel(),
+                artifacts={"detector": str(MODEL_FILE), "metadata": "models/metadata.json"},
                 code_paths=["src"], pip_requirements="requirements-app.txt")
             mlflow.log_artifacts(f"{tmp}/model", "model")
         return run.info.run_id

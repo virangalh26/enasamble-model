@@ -1,8 +1,7 @@
-"""Aswesuma-style Poverty Screener: a small web app made of this Python server and one HTML page.
+"""Rooftop Solar Detector: a small web app made of this Python server and one HTML page.
 
-A welfare officer fills in what they can see or ask on a home visit; the NGBoost model returns the chance that
-the household is below the official poverty line, the predicted spending per person with an 80% range, and the
-reasons (SHAP and LIME). index.html, next to it, is the whole screen: it calls the /api/... URLs below.
+This file loads the trained stacking ensemble and answers JSON requests. index.html, next to it, is
+the whole screen: it calls the /api/... URLs below with fetch() and draws the results.
 It uses only the Python standard library for the web part (no Streamlit or Flask).
 
 Run on this computer (opens the browser):
@@ -11,6 +10,7 @@ Run in the container on Azure:
     python app/server.py --host 0.0.0.0 --port 8501 --no-browser
 """
 import argparse
+import io
 import json
 import math
 import os
@@ -28,160 +28,188 @@ import pandas as pd
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent
 sys.path.insert(0, str(ROOT))
-from src.features import CATEGORICAL, DURABLES  # noqa: E402
-from src.hies import DISTRICTS, SECTORS  # noqa: E402
+from src.data import readings_to_days  # noqa: E402
+from src.features import HOURS, make_features  # noqa: E402
 
-MODEL_PATH = ROOT / "models" / "poverty_targeter.joblib"
+MODEL_PATH = ROOT / "models" / "solar_detector.joblib"
 META_PATH = ROOT / "models" / "metadata.json"
-DEFAULTS_PATH = ROOT / "models" / "form_defaults.json"
-CODE_LABELS_PATH = HERE / "code_labels.json"
 PAGE_FILE = HERE / "index.html"
+SAMPLE_CSV = HERE / "sample_meter_readings.csv"
 # Set by the Deploy workflow: the image tag (git commit) of the running version.
 MODEL_VERSION = os.environ.get("MODEL_IMAGE_TAG", "local")
-MAX_BODY = 1024 * 1024
+MAX_BODY = 20 * 1024 * 1024  # largest upload accepted (about a year of 15-minute readings)
 
-# What the officer is asked, in the order shown on the form. Everything else keeps the typical value of
-# training households (models/form_defaults.json), so a short form still gives a full model input.
-FORM = [
-    ("Location", ["district", "sector"]),
-    ("People", ["n_members", "n_children", "n_elderly", "n_employed", "head_female", "head_age", "head_education",
-                "max_adult_education"]),
-    ("House", ["walls", "floor", "roof", "bed_rooms", "area", "ownership", "toilet_type", "drinking_water",
-               "cooking_fuel", "lite_source"]),
-    ("Belongings", ["own_" + d for d in ["fridge", "tv", "washing_mechine", "computers", "motor_bicycle",
-                                         "three_wheeler", "motor_car_van", "telephone_mobile", "s6a_aircon",
-                                         "sewingmechine"]]),
-    ("Land & animals", ["owns_agri_land", "land_perches", "has_s9_cattle_buffaloes", "has_chickens"]),
-]
-
-LABELS = {
-    "district": "District", "sector": "Sector", "n_members": "People in the household",
-    "n_children": "Children under 15", "n_elderly": "People aged 60+", "n_employed": "People with work",
-    "head_female": "Head of household is a woman", "head_age": "Age of the head",
-    "head_education": "Education of the head (grade code)", "max_adult_education": "Highest adult education (code)",
-    "walls": "Wall material", "floor": "Floor material", "roof": "Roof material", "bed_rooms": "Bedrooms",
-    "area": "Floor area (size class)", "ownership": "Ownership of the house", "toilet_type": "Toilet type",
-    "drinking_water": "Main drinking water", "cooking_fuel": "Cooking fuel", "lite_source": "Lighting source",
-    "owns_agri_land": "Owns agricultural land", "land_perches": "Land owned (perches)",
-    "has_s9_cattle_buffaloes": "Has cattle or buffaloes", "has_chickens": "Has chickens",
-    "n_durables": "Number of durable goods owned", "dependency_ratio": "Dependants per working-age adult",
-    "employed_share": "Share of members with work", "share_female": "Share of members who are women",
-    "n_working_age": "People aged 15-59", "mean_adult_education": "Average adult education (code)",
-    **{"own_" + d: "Owns " + d.replace("s6a_", "").replace("_", " ").replace("mechine", "machine") for d in DURABLES},
+# Median hourly import (kWh) per class in the RECON-SL training households: starting points for the form.
+# Medians, not means: on a sunny day a solar home imports exactly zero at midday, which an
+# average across many days blurs into a small positive value.
+PRESETS = {
+    "Typical day, home with solar": [0.429, 0.385, 0.361, 0.349, 0.359, 0.421, 0.312, 0.059, 0.001, 0.0, 0.0, 0.0,
+                                     0.0, 0.0, 0.0, 0.0, 0.047, 0.220, 0.424, 0.479, 0.497, 0.528, 0.540, 0.484],
+    "Typical day, home without solar": [0.116, 0.111, 0.108, 0.107, 0.110, 0.120, 0.120, 0.100, 0.088, 0.087, 0.088,
+                                        0.091, 0.096, 0.097, 0.099, 0.099, 0.099, 0.105, 0.132, 0.148, 0.152, 0.150,
+                                        0.139, 0.123],
+    "Empty house (fridge only)": [0.05] * 24,
 }
-BINARY = {"head_female", "owns_agri_land", "has_s9_cattle_buffaloes", "has_chickens"} | {"own_" + d for d in DURABLES}
 
-
-def code_labels():
-    """Names of HIES answer codes (e.g. walls: 1 = brick). Unknown codes are shown as 'code k'."""
-    labels = json.loads(CODE_LABELS_PATH.read_text()) if CODE_LABELS_PATH.exists() else {}
-    labels["district"] = {str(k): v for k, v in DISTRICTS.items()}
-    labels["sector"] = {str(k): v for k, v in SECTORS.items()}
-    return labels
+# Plain-English names for the features the explanations mention most.
+LABELS = {
+    "total_kwh": "Total import in the day",
+    "daytime_min_share": "Lowest daytime hour, as share of the day",
+    "daytime_min_to_night_min": "Lowest daytime hour ÷ lowest night hour",
+    "daytime_min_kwh": "Lowest daytime hour (kWh)",
+    "daytime_zero_hours": "Daytime hours with ~zero import",
+    "daytime_std": "Variation across daytime hours",
+    "midday_kwh": "Import 10:00–15:00",
+    "night_kwh": "Import 00:00–05:00",
+    "evening_kwh": "Import 18:00–22:00",
+    "night_min_kwh": "Lowest night hour (kWh)",
+    "midday_to_night": "Midday ÷ night import",
+    "midday_to_evening": "Midday ÷ evening import",
+    "midday_to_morning": "Midday ÷ morning import",
+    "bowl_depth": "Depth of the midday dip",
+    "peak_hour": "Hour with the highest import",
+    "trough_hour": "Hour with the lowest import",
+}
 
 
 def label(feature):
-    base = feature.split("=")[0]
-    name = LABELS.get(base, base.replace("_", " ").capitalize())
-    if "=" in feature:
-        code = feature.split("=")[1]
-        name += ": " + CODES.get(base, {}).get(code, f"code {code}")
-    return name
-
-
-CODES = code_labels()
+    """'h18_kwh' -> 'Import at 18:00 (kWh)'; known features get their plain-English name."""
+    if feature in LABELS:
+        return LABELS[feature]
+    if feature.startswith("h") and feature[1:3].isdigit():
+        hour, kind = feature[1:3], feature[4:]
+        return f"Import at {hour}:00" + (" (share of day)" if kind == "share" else " (kWh)")
+    return feature
 
 
 class Model:
+    """The trained detector plus its explainers. One copy, shared by every request."""
+
     def __init__(self):
-        import shap
-        self.t = joblib.load(MODEL_PATH)
+        self.detector = joblib.load(MODEL_PATH)
         self.meta = json.loads(META_PATH.read_text())
-        self.defaults = json.loads(DEFAULTS_PATH.read_text())
-        self.shap = shap.TreeExplainer(self.t.model, model_output=0)
-        self.lime = None
+        self.lock = threading.Lock()  # one prediction at a time keeps memory use flat
+        stack = self.detector.day_model
+        names = [n for n, _ in stack.estimators]
+        self.weights = pd.Series(stack.final_estimator_.coef_.ravel()[: len(names)], index=names)
+        # Tree SHAP is exact and fast, so the app explains the boosting learner with the largest weight.
+        boosting = [n for n in ("lightgbm", "xgboost", "catboost") if n in names]
+        self.shap_model = self.weights[boosting].idxmax()
+        import shap
+        self.shap = shap.TreeExplainer(stack.estimators_[names.index(self.shap_model)])
+        self.lime = None  # built on first use (takes a second)
 
     def info(self):
-        test = self.meta["test"]
-        fields = []
-        for section, names in FORM:
-            for f in names:
-                d = self.defaults["values"].get(f, 0)
-                if f in CATEGORICAL:
-                    opts = [{"value": c, "label": CODES.get(f, {}).get(str(int(c)), f"code {int(c)}")}
-                            for c in self.defaults["categories"].get(f, [])]
-                    fields.append({"name": f, "label": label(f), "section": section, "type": "select",
-                                   "options": opts, "default": d})
-                else:
-                    fields.append({"name": f, "label": label(f), "section": section,
-                                   "type": "yesno" if f in BINARY else "number", "default": d})
-        return {"model": self.meta["model"], "povertyLine": self.meta["poverty_line"],
-                "threshold": self.meta["threshold"], "test": test, "regression": self.meta["test_regression"],
-                "baselines": self.meta["baselines"], "fields": fields, "version": MODEL_VERSION,
-                "nTrain": self.t.info.get("trained_households")}
+        test = self.meta["test_households"]
+        return {
+            "model": self.meta["model"], "version": MODEL_VERSION,
+            "trained": self.meta.get("trained_at", "2026-10-20")[:10], "threshold": self.meta["threshold"],
+            "accuracy": test["hh_accuracy"], "errors": test["hh_errors"], "n": test["hh_n"], "auc": test["hh_auc"],
+            "precision": test["hh_precision"], "recall": test["hh_recall"],
+            "weights": {k: round(float(v), 3) for k, v in self.weights.items()},
+            "shapModel": self.shap_model, "presets": PRESETS, "hours": HOURS,
+        }
 
-    def household(self, values: dict) -> pd.DataFrame:
-        row = dict(self.defaults["values"])
-        for k, v in values.items():
-            if k not in row:
-                continue
-            try:
-                v = float(v)
-            except (TypeError, ValueError):
-                raise ValueError(f"{k} must be a number")
-            if not math.isfinite(v) or v < 0:
-                raise ValueError(f"{k} must be a number >= 0")
-            row[k] = v
-        # keep derived counts consistent with what the officer typed
-        row["n_durables"] = sum(row.get("own_" + d, 0) for d in DURABLES)
-        row["n_working_age"] = max(row["n_members"] - row["n_children"] - row["n_elderly"], 0)
-        row["dependency_ratio"] = (row["n_children"] + row["n_elderly"]) / max(row["n_working_age"], 1)
-        row["employed_share"] = row["n_employed"] / max(row["n_members"], 1)
-        return pd.DataFrame([row])
+    def features(self, values):
+        return self.detector.features(pd.DataFrame([values], columns=HOURS))
 
-    def predict(self, values: dict):
-        hh = self.household(values)
-        r = self.t.predict(hh).iloc[0]
-        X = self.t.matrix(hh)
-        sv = pd.Series(self.shap.shap_values(X.values)[0], index=X.columns)
-        sv = sv[sv.abs() > 1e-6]
-        top = sv.reindex(sv.abs().sort_values(ascending=False).index[:8])
-        why = [{"label": label(f), "score": float(-v)} for f, v in top.items()]  # + = towards poverty
-        return {"ok": True, "p": float(r.p_poor), "flag": bool(r.flag_for_support),
-                "pc": float(r.pred_pc_consumption), "low": float(r.pc_low), "high": float(r.pc_high),
-                "why": why}
+    def predict_day(self, values):
+        X = self.features(values)
+        with self.lock:
+            p = float(self.detector.day_model.predict_proba(X)[:, 1][0])
+            sv = self.shap(X)
+        contrib = sv.values[0, :, 1] if sv.values.ndim == 3 else sv.values[0]
+        top = np.argsort(-np.abs(contrib))[:8]
+        why = [{"feature": X.columns[i], "label": label(X.columns[i]), "value": round(float(X.iloc[0, i]), 4),
+                "shap": round(float(contrib[i]), 4)} for i in top]
+        return {"ok": True, "p": p, "solar": p >= self.meta["threshold"], "why": why}
 
-    def explain_lime(self, values: dict):
-        from lime.lime_tabular import LimeTabularExplainer
-        if self.lime is None:
-            sample = np.array(self.defaults["lime_background"])
-            self.lime = LimeTabularExplainer(sample, feature_names=self.t.columns, mode="classification",
-                                             class_names=["not poor", "poor"], random_state=0)
-        X = self.t.matrix(self.household(values))
-        f = lambda x: np.c_[1 - (q := self.t.p_poor_from_matrix(pd.DataFrame(x, columns=self.t.columns))), q]
-        exp = self.lime.explain_instance(X.values[0], f, num_features=8, num_samples=2000)
-        return {"ok": True, "rules": [{"label": rule, "score": float(w)} for rule, w in exp.as_list()]}
+    def explain_lime(self, values):
+        X = self.features(values)
+        with self.lock:
+            if self.lime is None:
+                from lime.lime_tabular import LimeTabularExplainer
+                rng = np.random.default_rng(0)
+                base = pd.DataFrame(list(PRESETS.values()), columns=HOURS)
+                noise = pd.concat([base] * 200, ignore_index=True) * rng.lognormal(0, 0.5, (600, 24))
+                bg = make_features(noise)[self.detector.feature_names]
+                self.lime = LimeTabularExplainer(bg.values, feature_names=list(bg.columns),
+                                                 class_names=["no solar", "solar"],
+                                                 discretize_continuous=True, random_state=0)
+            exp = self.lime.explain_instance(
+                X.iloc[0].values,
+                lambda rows: self.detector.day_model.predict_proba(pd.DataFrame(rows, columns=X.columns)),
+                num_features=8, num_samples=2000)
+        rules = [{"rule": rule, "weight": round(float(w), 4)} for rule, w in exp.as_list(label=1)]
+        for r in rules:  # make the rules readable: replace feature names inside them
+            for f in sorted(X.columns, key=len, reverse=True):
+                if f in r["rule"]:
+                    r["rule"] = r["rule"].replace(f, label(f))
+                    break
+        return {"ok": True, "rules": rules}
+
+    def household(self, csv_text):
+        readings = pd.read_csv(io.StringIO(csv_text))
+        missing = {"timestamp", "import_kwh"} - set(readings.columns)
+        if missing:
+            return {"ok": False, "message": f"The CSV needs the column(s): {', '.join(sorted(missing))}."}
+        days = readings_to_days(readings)
+        if days.empty:
+            return {"ok": False, "message": "No complete days found (a day needs at least 90 of 96 readings)."}
+        with self.lock:
+            days["p"] = self.detector.predict_day_proba(days)
+        mean_p = float(days["p"].mean())
+        return {
+            "ok": True, "p": mean_p, "solar": mean_p >= self.meta["threshold"], "nDays": int(len(days)),
+            "days": [{"day": str(d.date()), "p": round(float(p), 4)} for d, p in zip(days["day"], days["p"])],
+            "profile": [round(float(v), 4) for v in days[HOURS].mean().values],
+            "message": f"{len(days)} complete days from {days['day'].min().date()} to {days['day'].max().date()}.",
+        }
 
 
-def log_prediction(p, flag):
+def log_prediction(mode, p, n_days, verdict):
     """One JSON line per prediction on stdout -> Container Apps -> Log Analytics (monitoring).
 
-    Only the score and the decision are logged, never the household's answers.
+    Only the score and counts are logged, never the readings themselves.
     """
-    print(json.dumps({"event": "prediction", "p_poor": round(p, 4), "flag": int(flag),
-                      "model_version": MODEL_VERSION, "ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}),
-          flush=True)
+    print(json.dumps({"event": "prediction", "mode": mode, "p_solar": round(p, 4), "n_days": n_days,
+                      "verdict": int(verdict), "model_version": MODEL_VERSION,
+                      "ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}), flush=True)
+
+
+def hours_from(body):
+    """The 24 hourly values from the browser, cleaned: anything that is not a number >= 0 becomes 0."""
+    values = list(body["hours"])
+    if len(values) != 24:
+        raise ValueError("need 24 values")
+    out = []
+    for v in values:
+        try:
+            v = float(v)
+        except (TypeError, ValueError):
+            v = 0.0
+        out.append(min(max(v, 0.0), 50.0) if math.isfinite(v) else 0.0)
+    return out
 
 
 def predict(body):
-    r = model.predict(dict(body.get("values", {})))
-    log_prediction(r["p"], r["flag"])
+    r = model.predict_day(hours_from(body))
+    log_prediction("day", r["p"], 1, r["solar"])
     return r
 
 
+def household(body):
+    r = model.household(str(body["csv"]))
+    if r["ok"]:
+        log_prediction("household", r["p"], r["nDays"], r["solar"])
+    return r
+
+
+# Every button in the page posts to one of these URLs; each gets the request body as a dict.
 ROUTES = {
     "/api/predict": predict,
-    "/api/lime": lambda body: model.explain_lime(dict(body.get("values", {}))),
+    "/api/lime": lambda body: model.explain_lime(hours_from(body)),
+    "/api/household": household,
 }
 
 model = None  # created in main()
@@ -200,7 +228,10 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(data)
 
     def do_GET(self):
-        # "/" -> the page · "/health" -> "ok" (Docker, Deploy, Monitor) · "/api/info" -> model details and the form
+        # "/"           -> the page itself (index.html)
+        # "/health"     -> "ok" (used by Docker, the Deploy workflow and the daily Monitor check)
+        # "/api/info"   -> model details, test results and the preset days, used when the page loads
+        # "/api/sample" -> the bundled sample household's meter readings (CSV)
         path = self.path.split("?")[0]
         if path == "/":
             self.send(200, PAGE_FILE.read_text(encoding="utf-8"), "text/html; charset=utf-8")
@@ -208,6 +239,8 @@ class Handler(BaseHTTPRequestHandler):
             self.send(200, "ok", "text/plain")
         elif path == "/api/info":
             self.send(200, json.dumps(model.info()), "application/json")
+        elif path == "/api/sample":
+            self.send(200, SAMPLE_CSV.read_text(encoding="utf-8"), "text/csv; charset=utf-8")
         else:
             self.send(404, "Not found", "text/plain")
 
@@ -217,11 +250,12 @@ class Handler(BaseHTTPRequestHandler):
             return self.send(404, "Not found", "text/plain")
         length = int(self.headers.get("Content-Length", 0))
         if length > MAX_BODY:
-            return self.send(413, json.dumps({"ok": False, "message": "Request too large."}), "application/json")
+            return self.send(413, json.dumps({"ok": False, "message": "File too large (max 20 MB)."}), "application/json")
         try:
             body = json.loads(self.rfile.read(length) or b"{}")
             answer = route(body)
-        except (ValueError, KeyError, TypeError) as e:
+        except (ValueError, KeyError, TypeError, pd.errors.ParserError) as e:
+            # Missing or broken data from the browser.
             answer = {"ok": False, "message": f"Could not read the input: {e}"}
         self.send(200, json.dumps(answer), "application/json")
 
@@ -241,7 +275,7 @@ def main():
     model = Model()
     server = ThreadingHTTPServer((a.host, a.port), Handler)
     url = f"http://{'127.0.0.1' if a.host == '0.0.0.0' else a.host}:{server.server_address[1]}/"
-    print(f"Poverty Screener running at {url}  (Ctrl+C to stop)", flush=True)
+    print(f"Rooftop Solar Detector running at {url}  (Ctrl+C to stop)", flush=True)
     if not a.no_browser:
         threading.Timer(0.5, webbrowser.open, args=(url,)).start()
     try:

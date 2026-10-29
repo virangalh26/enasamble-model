@@ -1,0 +1,30 @@
+Stacking meta-learner weights:
+ extra_trees    6.239
+lightgbm       1.368
+xgboost        1.024
+catboost       0.907
+dtype: float64
+Top SHAP features (LightGBM):
+ daytime_min_to_night_min    0.7986
+daytime_min_share           0.6915
+total_kwh                   0.3851
+evening_kwh                 0.2971
+daytime_min_kwh             0.1361
+h22_kwh                     0.1253
+h18_kwh                     0.1159
+night_kwh                   0.1065
+h00_kwh                     0.1056
+h16_share                   0.1027
+dtype: float64
+Top SHAP features (ensemble):
+ daytime_min_share           0.0574
+daytime_min_to_night_min    0.0316
+daytime_min_kwh             0.0230
+evening_kwh                 0.0183
+daytime_zero_hours          0.0155
+total_kwh                   0.0112
+h18_kwh                     0.0093
+night_kwh                   0.0081
+trough_hour                 0.0071
+h22_kwh                     0.0062
+dtype: float64
