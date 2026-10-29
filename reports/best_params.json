@@ -1,31 +1,29 @@
 {
-  "LightGBM": {
-    "n_estimators": 300,
-    "learning_rate": 0.01624765070858283,
-    "num_leaves": 47,
-    "min_child_samples": 27,
-    "subsample": 0.8844347393001687,
-    "colsample_bytree": 0.7361957890678326,
-    "reg_lambda": 1.4210186920403938
+  "rotation_forest": {
+    "subset_size": 3,
+    "max_features": null,
+    "min_samples_leaf": 20,
+    "n_estimators": 100,
+    "sample_fraction": 0.75
   },
-  "XGBoost": {
-    "n_estimators": 400,
-    "learning_rate": 0.011394633213773524,
-    "max_depth": 6,
-    "min_child_weight": 4.399859178544845,
-    "subsample": 0.9218873698364651,
-    "colsample_bytree": 0.6075756052328224,
-    "reg_lambda": 0.7214625989513102
-  },
-  "CatBoost": {
-    "iterations": 400,
-    "learning_rate": 0.02864339657822303,
-    "depth": 4,
-    "l2_leaf_reg": 13.39433470675048
-  },
-  "Extra Trees": {
-    "n_estimators": 400,
-    "min_samples_leaf": 1,
-    "max_features": 0.5282970263056657
+  "search": {
+    "grid": {
+      "subset_size": [
+        3,
+        6
+      ],
+      "max_features": [
+        null,
+        "sqrt"
+      ],
+      "min_samples_leaf": [
+        5,
+        20
+      ]
+    },
+    "trees": 30,
+    "tune_households": 0.5,
+    "folds": 3,
+    "objective": "log loss"
   }
 }

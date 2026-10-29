@@ -206,8 +206,8 @@
     <div class="head"><h2>The model</h2><button class="btn ghost" id="modelClose">Close</button></div>
     <p class="sub" id="modelName"></p>
     <table class="tbl">
-      <thead><tr><th>Base learner</th><th>Type</th><th>Stacking weight</th></tr></thead>
-      <tbody id="weights"></tbody>
+      <thead><tr><th>Setting</th><th>Value</th></tr></thead>
+      <tbody id="params"></tbody>
     </table>
     <p class="note" id="modelNote"></p>
   </dialog>
@@ -223,7 +223,7 @@
     </section>
 
     <section class="card">
-      <div class="head"><h2>Prediction</h2><span class="eyb">Stacking ensemble</span></div>
+      <div class="head"><h2>Prediction</h2><span class="eyb">Rotation Forest</span></div>
       <div class="verdict">
         <h3 id="verdict">–</h3>
         <div class="pct"><b id="pSolar">–</b><span>P(solar)</span></div>
@@ -267,8 +267,12 @@ const $ = id => document.getElementById(id);
 const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const pct = p => (p * 100).toFixed(1) + '%';
 const SUN = [9, 10, 11, 12, 13, 14, 15];
-const KIND = { extra_trees: 'Bagging', lightgbm: 'Boosting', xgboost: 'Boosting', catboost: 'Boosting' };
-const NAME = { extra_trees: 'Extra Trees', lightgbm: 'LightGBM', xgboost: 'XGBoost', catboost: 'CatBoost' };
+const PARAM = {
+  n_estimators: 'Decision trees, each on its own PCA-rotated axes',
+  subset_size: 'Features per PCA subset (K)',
+  max_features: 'Features tried at each split',
+  min_samples_leaf: 'Smallest leaf (days)',
+};
 let info = null;
 let lastHours = null;
 let tab = 'shap';
@@ -361,7 +365,7 @@ function bars(rows, key, scaleOf) {
 function renderShap() {
   if (!lastWhy) return;
   $('why').innerHTML = bars(lastWhy, 'shap', r => `${esc(r.label)}<small>value ${r.value}</small>`);
-  $('whyNote').textContent = `Tree SHAP on the ${NAME[info.shapModel]} base learner (log-odds). Longer bar = stronger effect.`;
+  $('whyNote').textContent = 'Permutation SHAP on the whole Rotation Forest (change in P(solar)). Longer bar = stronger effect.';
 }
 
 async function loadLime() {
@@ -370,7 +374,7 @@ async function loadLime() {
   const r = await api('/api/lime', { hours: lastHours });
   if (!r.ok) { $('why').innerHTML = `<p class="empty">${esc(r.message)}</p>`; return; }
   $('why').innerHTML = bars(r.rules, 'weight', x => esc(x.rule));
-  $('whyNote').textContent = 'LIME on the full stacking ensemble: a simple model fitted around this one day.';
+  $('whyNote').textContent = 'LIME on the Rotation Forest: a simple model fitted around this one day.';
 }
 
 document.querySelector('.tabs').addEventListener('click', e => {
@@ -421,9 +425,9 @@ api('/api/info').then(d => {
   $('meterThr').style.left = pct(d.threshold);
   $('thrLabel').textContent = `threshold ${Math.round(d.threshold * 100)}%`;
   $('modelName').textContent = `${d.model} · version ${d.version} · trained ${d.trained}`;
-  $('weights').innerHTML = Object.entries(d.weights).sort((a, b) => b[1] - a[1]).map(([k, w]) =>
-    `<tr><td>${esc(NAME[k] || k)}</td><td>${KIND[k] || ''}</td><td>${w.toFixed(2)}</td></tr>`).join('');
-  $('modelNote').textContent = `Held-out test on 592 unseen households: ${(d.accuracy * 100).toFixed(2)}% accuracy (${d.errors} errors / ${d.n}), precision ${pct(d.precision)}, recall ${pct(d.recall)}, AUC ${d.auc.toFixed(4)}. Decision threshold ${d.threshold} was chosen on training households only. Export readings are never used as inputs.`;
+  $('params').innerHTML = Object.entries(PARAM).map(([k, name]) =>
+    `<tr><td>${name}</td><td>${esc(d.params[k] ?? 'all')}</td></tr>`).join('');
+  $('modelNote').textContent = `Held-out test on ${d.n} unseen household-periods: ${(d.accuracy * 100).toFixed(2)}% accuracy (${d.errors} errors / ${d.n}), precision ${pct(d.precision)}, recall ${pct(d.recall)}, AUC ${d.auc.toFixed(4)}. Decision threshold ${d.threshold} was chosen on training households only. Export readings are never used as inputs.`;
   $('preset').innerHTML = Object.keys(d.presets).map(k => `<option>${esc(k)}</option>`).join('');
   buildHours();
   setHours(d.presets[$('preset').value]);

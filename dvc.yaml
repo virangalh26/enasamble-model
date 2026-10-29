@@ -1,4 +1,4 @@
-# Reproducible pipeline: raw data -> household-days -> trained ensemble -> explanations.
+# Reproducible pipeline: raw data -> household-days -> trained Rotation Forest -> explanations.
 # `dvc repro` reruns only the stages whose code, data or parameters changed; `dvc.lock` records
 # the exact hashes, so every model can be traced to the data and code that produced it.
 stages:
@@ -21,12 +21,15 @@ stages:
       - data/processed/household_days.parquet
 
   train:
-    cmd: python -m src.train --trials ${train.trials} --tune-households ${train.tune_households}
+    cmd: >-
+      python -m src.train --trees ${train.trees} --search-trees ${train.search_trees}
+      --days-per-household ${train.days_per_household} --tune-households ${train.tune_households}
     deps:
       - data/processed/household_days.parquet
       - src/train.py
       - src/features.py
       - src/model.py
+      - src/rotation_forest.py
       - src/drift.py
     params:
       - train
@@ -41,6 +44,14 @@ stages:
       - reports/split.json:
           cache: false
       - reports/best_params.json:
+          cache: false
+      - reports/rotation_forest_grid_search.csv:
+          cache: false
+      - reports/trees_curve.csv:
+          cache: false
+      - reports/figures/model_comparison.png:
+          cache: false
+      - reports/figures/trees_curve.png:
           cache: false
       - reports/model_comparison.csv:
           cache: false
@@ -59,6 +70,7 @@ stages:
       - data/processed/household_days.parquet
       - reports/split.json
       - src/explain.py
+      - src/rotation_forest.py
     outs:
       - reports/explain:
           cache: false

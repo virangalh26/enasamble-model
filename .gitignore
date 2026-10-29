@@ -14,3 +14,6 @@ catboost_info/
 .claude/
 reports/drift.json
 mlruns/
+
+# Written report (submitted separately, not part of the repo)
+reports/AML_Assignment2_Report.*

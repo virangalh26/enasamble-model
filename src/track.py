@@ -61,26 +61,26 @@ def log_training(model_hash: str, git_sha: str) -> str:
     comp = pd.read_csv("reports/model_comparison.csv")
     best = json.load(open("reports/best_params.json"))
     mlflow.set_experiment(EXPERIMENT)
-    with mlflow.start_run(run_name=f"stacking-{model_hash[:8]}") as run:
+    with mlflow.start_run(run_name=f"rotation-forest-{model_hash[:8]}") as run:
         mlflow.set_tags({"model_sha256": model_hash, "git_sha": git_sha, "dataset": "RECON-SL (LIRNEasia)",
-                         "data_md5": data_version(), "kind": "final-ensemble"})
+                         "data_md5": data_version(), "kind": "rotation-forest"})
         mlflow.log_params({"threshold": meta["threshold"], "n_features": len(meta["features"]),
-                           "base_models": "lightgbm,xgboost,catboost,extra_trees", "meta_model": "logistic_regression",
+                           "algorithm": "rotation_forest", **{f"rf_{k}": v for k, v in meta["params"].items()},
                            "evaluation_unit": "household-period", "export_threshold_kwh": meta["export_threshold_kwh"]})
         mlflow.log_metrics({f"test_{k}": float(v) for k, v in meta["test_households"].items()})
         mlflow.log_metrics({f"cv_{k}": float(v) for k, v in meta["cv_train_households"].items()})
 
         for row in comp.to_dict(orient="records"):
             with mlflow.start_run(run_name=row["model"], nested=True):
-                family = row["model"].replace(" (tuned)", "")
                 mlflow.set_tags({"stage": row["stage"], "model_sha256": model_hash})
-                if row["stage"] == "tuned" and family in best:
-                    mlflow.log_params(best[family])
+                if row["stage"] == "main":
+                    mlflow.log_params(best["rotation_forest"])
                 mlflow.log_metrics({k: float(v) for k, v in row.items() if k.startswith(("cv_", "test_"))})
                 mlflow.log_metric("train_seconds", float(row["seconds"]))
 
         for path in ["models/metadata.json", "reports/metrics.json", "reports/model_comparison.csv",
-                     "reports/best_params.json", "models/reference_stats.json", "params.yaml"]:
+                     "reports/best_params.json", "reports/rotation_forest_grid_search.csv",
+                     "reports/trees_curve.csv", "models/reference_stats.json", "params.yaml"]:
             if Path(path).exists():
                 mlflow.log_artifact(path, "reports")
         if Path("reports/explain").exists():
