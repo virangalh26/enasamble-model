@@ -1,6 +1,6 @@
 """Rooftop Solar Detector: a small web app made of this Python server and one HTML page.
 
-This file loads the trained stacking ensemble and answers JSON requests. index.html, next to it, is
+This file loads the trained Rotation Forest and answers JSON requests. index.html, next to it, is
 the whole screen: it calls the /api/... URLs below with fetch() and draws the results.
 It uses only the Python standard library for the web part (no Streamlit or Flask).
 
@@ -89,14 +89,11 @@ class Model:
         self.detector = joblib.load(MODEL_PATH)
         self.meta = json.loads(META_PATH.read_text())
         self.lock = threading.Lock()  # one prediction at a time keeps memory use flat
-        stack = self.detector.day_model
-        names = [n for n, _ in stack.estimators]
-        self.weights = pd.Series(stack.final_estimator_.coef_.ravel()[: len(names)], index=names)
-        # Tree SHAP is exact and fast, so the app explains the boosting learner with the largest weight.
-        boosting = [n for n in ("lightgbm", "xgboost", "catboost") if n in names]
-        self.shap_model = self.weights[boosting].idxmax()
-        import shap
-        self.shap = shap.TreeExplainer(stack.estimators_[names.index(self.shap_model)])
+        # Permutation SHAP on the whole forest (its trees split on rotated axes, so tree SHAP would explain
+        # mixtures of features), against a small background of training days saved with the model.
+        from src.explain import shap_explainer, shap_values
+        self.shap = shap_explainer(self.detector, self.detector.info["background"])
+        self.shap_values = shap_values
         self.lime = None  # built on first use (takes a second)
 
     def info(self):
@@ -106,8 +103,7 @@ class Model:
             "trained": self.meta.get("trained_at", "2026-10-20")[:10], "threshold": self.meta["threshold"],
             "accuracy": test["hh_accuracy"], "errors": test["hh_errors"], "n": test["hh_n"], "auc": test["hh_auc"],
             "precision": test["hh_precision"], "recall": test["hh_recall"],
-            "weights": {k: round(float(v), 3) for k, v in self.weights.items()},
-            "shapModel": self.shap_model, "presets": PRESETS, "hours": HOURS,
+            "params": self.meta["params"], "presets": PRESETS, "hours": HOURS,
         }
 
     def features(self, values):
@@ -117,8 +113,7 @@ class Model:
         X = self.features(values)
         with self.lock:
             p = float(self.detector.day_model.predict_proba(X)[:, 1][0])
-            sv = self.shap(X)
-        contrib = sv.values[0, :, 1] if sv.values.ndim == 3 else sv.values[0]
+            contrib = self.shap_values(self.shap, X).values[0]
         top = np.argsort(-np.abs(contrib))[:8]
         why = [{"feature": X.columns[i], "label": label(X.columns[i]), "value": round(float(X.iloc[0, i]), 4),
                 "shap": round(float(contrib[i]), 4)} for i in top]

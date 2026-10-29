@@ -1,6 +1,6 @@
 FROM python:3.12-slim
 
-# libgomp is needed by LightGBM/XGBoost at runtime
+# libgomp: OpenMP runtime used by scikit-learn
 RUN apt-get update && apt-get install -y --no-install-recommends libgomp1 && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

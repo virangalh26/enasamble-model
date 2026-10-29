@@ -1,6 +1,6 @@
 name: Retrain
 
-# Continuous training: reproduce the DVC pipeline (data -> features -> ensemble -> explanations),
+# Continuous training: reproduce the DVC pipeline (data -> features -> Rotation Forest -> explanations),
 # check data drift, compare the new model with the current one (quality gate), log everything to
 # MLflow on Azure ML as a "candidate", version the data in Azure Blob (DVC), and push the result to a
 # branch `retrain/<run>` for review. Merging that branch into main deploys the new model.
@@ -8,10 +8,10 @@ name: Retrain
 on:
   workflow_dispatch:
     inputs:
-      trials:
-        description: "Optuna trials per model family"
+      trees:
+        description: "Trees in the final Rotation Forest"
         required: false
-        default: "10"
+        default: "100"
       redownload:
         description: "Download the dataset again from Kaggle (otherwise the DVC-versioned copy is used)"
         type: boolean
@@ -63,7 +63,7 @@ jobs:
           python - <<'EOF'
           import yaml
           p = yaml.safe_load(open("params.yaml"))
-          p["train"]["trials"] = int("${{ inputs.trials }}")
+          p["train"]["trees"] = int("${{ inputs.trees }}")
           yaml.safe_dump(p, open("params.yaml", "w"), sort_keys=False)
           EOF
           dvc repro build
@@ -94,7 +94,7 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git checkout -b "$BRANCH"
           git add params.yaml dvc.lock models reports
-          git commit -m "Retrained model (run ${{ github.run_number }}, trials=${{ inputs.trials }})"
+          git commit -m "Retrained model (run ${{ github.run_number }}, trees=${{ inputs.trees }})"
           git push origin "$BRANCH"
           {
             echo "### Next step"

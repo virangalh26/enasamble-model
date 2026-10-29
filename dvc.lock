@@ -40,7 +40,8 @@ stages:
       md5: 0caf01b3eed6e36e30f0da963c6d8c8d
       size: 18915701
   train:
-    cmd: python -m src.train --trials 15 --tune-households 0.25
+    cmd: python -m src.train --trees 100 --search-trees 30 --days-per-household 
+      40 --tune-households 0.5
     deps:
     - path: data/processed/household_days.parquet
       hash: md5
@@ -52,58 +53,80 @@ stages:
       size: 2756
     - path: src/features.py
       hash: md5
-      md5: 4bd9a522b586727a5f4ecdbacbb7421e
-      size: 2358
+      md5: 3ddc828661116199be181e82243ebd3b
+      size: 2352
     - path: src/model.py
       hash: md5
       md5: 86336f4a8602c6ca039c0061a647374c
       size: 1227
+    - path: src/rotation_forest.py
+      hash: md5
+      md5: 0fb228b008a70b2b9b7bd8c0429db52a
+      size: 6151
     - path: src/train.py
       hash: md5
-      md5: f082e958df879c8970ec942a2d3ffd6a
-      size: 16589
+      md5: 223d0609ad6a6403779d241df9cbc00a
+      size: 17365
     params:
       params.yaml:
         train:
-          trials: 15
-          tune_households: 0.25
+          trees: 100
+          search_trees: 30
+          days_per_household: 40
+          tune_households: 0.5
     outs:
     - path: models/metadata.json
       hash: md5
-      md5: 669ea8647d542bb5d385d6420992fdfb
-      size: 2299
+      md5: e13df6a636555329bc6fe477d748784f
+      size: 2419
     - path: models/reference_stats.json
       hash: md5
-      md5: 6b644e4ebe7a9f031bf82418fcd95bf2
-      size: 3931
+      md5: 45350df8ea70412161b27b1f3a13f6b7
+      size: 3959
     - path: models/solar_detector.joblib
       hash: md5
-      md5: 5ad0a03d93b0f59a3c6afddd1587ceb7
-      size: 65976293
+      md5: 5134a07d97efd14de8b2a9f1c5a55436
+      size: 2982847
     - path: reports/best_params.json
       hash: md5
-      md5: 5eb9f88361368f7451a3ceb4a7e72435
-      size: 782
+      md5: 0ac2394ceff0d5923265f28a67bb63dd
+      size: 461
+    - path: reports/figures/model_comparison.png
+      hash: md5
+      md5: 885cd3308d75c13adac28d6f8a742fad
+      size: 69938
+    - path: reports/figures/trees_curve.png
+      hash: md5
+      md5: 5bc59355c09f744ce3a52b547f4ef1b7
+      size: 33676
     - path: reports/metrics.json
       hash: md5
-      md5: c125c37b14132a22314e40b16cdf3c42
-      size: 710
+      md5: a76c6a294552ca62d01e773fca0d2693
+      size: 706
     - path: reports/model_comparison.csv
       hash: md5
-      md5: 44c1127077bd639f01b06f66a50ec7fc
-      size: 5522
+      md5: f1f326aca3e755ea2ca3a508640f2999
+      size: 4828
+    - path: reports/rotation_forest_grid_search.csv
+      hash: md5
+      md5: bda459001cbb71e9fbd293b88a696a1c
+      size: 655
     - path: reports/split.json
       hash: md5
       md5: 3bd6628c34929930686ff5f8b1a82b34
       size: 29293
     - path: reports/test_day_predictions.parquet
       hash: md5
-      md5: 31d2f2efd02daa37db46ea17224744e3
-      size: 896979
+      md5: 7c716df79df022432ce51d552b1d6c6d
+      size: 467743
     - path: reports/test_household_predictions.csv
       hash: md5
-      md5: c1979e6e86d14efdadadac34c15e388d
-      size: 31842
+      md5: eca661af5652e8e1524c359d81cccecc
+      size: 31936
+    - path: reports/trees_curve.csv
+      hash: md5
+      md5: bed59c5ca11e9c31cb85254e22afc04a
+      size: 4182
   explain:
     cmd: python -m src.explain
     deps:
@@ -113,19 +136,23 @@ stages:
       size: 18915701
     - path: models/solar_detector.joblib
       hash: md5
-      md5: 5ad0a03d93b0f59a3c6afddd1587ceb7
-      size: 65976293
+      md5: 5134a07d97efd14de8b2a9f1c5a55436
+      size: 2982847
     - path: reports/split.json
       hash: md5
       md5: 3bd6628c34929930686ff5f8b1a82b34
       size: 29293
     - path: src/explain.py
       hash: md5
-      md5: fd48d0a47f82b59daff6495c39754eea
-      size: 6455
+      md5: 37adeb252af613cddcac75f1db576efc
+      size: 6172
+    - path: src/rotation_forest.py
+      hash: md5
+      md5: 0fb228b008a70b2b9b7bd8c0429db52a
+      size: 6151
     outs:
     - path: reports/explain
       hash: md5
-      md5: c1f5b752fc1648ade983d8ea15475c4f.dir
-      size: 811523
-      nfiles: 16
+      md5: a87b89d45c7f8fe9f75683023e35d15d.dir
+      size: 821730
+      nfiles: 13

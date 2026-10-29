@@ -1,6 +1,12 @@
 {
-  "model": "Stacking ensemble (LightGBM, XGBoost, CatBoost, Extra Trees -> Logistic Regression)",
-  "threshold": 0.45,
+  "model": "Rotation Forest (100 PCA-rotated decision trees)",
+  "params": {
+    "subset_size": 3,
+    "max_features": null,
+    "min_samples_leaf": 20,
+    "n_estimators": 100
+  },
+  "threshold": 0.46,
   "features": [
     "total_kwh",
     "h00_kwh",
@@ -94,29 +100,30 @@
     "h23"
   ],
   "cv_train_households": {
-    "hh_accuracy": 0.9911838790931989,
-    "hh_f1": 0.9724770642201835,
-    "hh_precision": 0.9867021276595744,
-    "hh_recall": 0.958656330749354,
-    "hh_auc": 0.9984250030761659,
-    "hh_errors": 21,
-    "hh_n": 2382,
-    "day_accuracy": 0.9789621589390811,
-    "day_auc": 0.9901772395581752,
-    "day_logloss": 0.07082020956387187
+    "hh_accuracy": 0.9894825410180901,
+    "hh_f1": 0.9669749009247027,
+    "hh_precision": 0.9891891891891892,
+    "hh_recall": 0.9457364341085271,
+    "hh_auc": 0.9986937270330982,
+    "hh_errors": 25,
+    "hh_n": 2377,
+    "day_accuracy": 0.975767855406588,
+    "day_auc": 0.9913485680841372,
+    "day_logloss": 0.07353310924217794
   },
   "test_households": {
-    "hh_accuracy": 0.9917763157894737,
-    "hh_f1": 0.9751243781094527,
+    "hh_accuracy": 0.9884868421052632,
+    "hh_f1": 0.964824120603015,
     "hh_precision": 1.0,
-    "hh_recall": 0.9514563106796117,
-    "hh_auc": 0.9972700182639624,
-    "hh_errors": 5,
+    "hh_recall": 0.9320388349514563,
+    "hh_auc": 0.9985388830145152,
+    "hh_errors": 7,
     "hh_n": 608,
-    "day_accuracy": 0.9835024680042845,
-    "day_auc": 0.9940414286636394,
-    "day_logloss": 0.059469254783166364
+    "day_accuracy": 0.9819785995870096,
+    "day_auc": 0.993404148837421,
+    "day_logloss": 0.0601846169931093
   },
   "export_threshold_kwh": 1.0,
-  "minutes": 48.1
+  "minutes": 55.9,
+  "trained_at": "2026-10-29T13:49:55Z"
 }

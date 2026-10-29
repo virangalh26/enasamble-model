@@ -45,21 +45,21 @@ flowchart LR
 
 | Workflow | Runs | Does |
 |---|---|---|
-| **CI** | every push / PR | install pinned deps, 15 tests, build Docker image, container health check |
+| **CI** | every push / PR | install pinned deps, all tests, build Docker image, container health check |
 | **Deploy** | after CI passes on `main`, or manually | build image → push to registry → update Container App → check live URL → register model in Azure ML as `production` |
-| **Retrain** | manually (inputs: trials, redownload) | `dvc pull` → `dvc repro` → tests → drift report → quality gate → MLflow run + `candidate` model → `dvc push` → branch `retrain/<n>` |
+| **Retrain** | manually (inputs: trees, redownload) | `dvc pull` → `dvc repro` → tests → drift report → quality gate → MLflow run + `candidate` model → `dvc push` → branch `retrain/<n>` |
 | **Monitor** | daily 08:00 Sri Lanka time, or manually | uptime check, running version, 7-day prediction summary |
 
 ## Common tasks
 
 ### Retrain the model
-1. Actions → **Retrain** → *Run workflow* (default 10 Optuna trials; on GitHub's 2-core runners a run takes ~2–3 h).
+1. Actions → **Retrain** → *Run workflow* (default 100 trees; on GitHub's 2-core runners a run takes ~2–3 h).
 2. Read the run summary: parameter diff, metric diff vs. the current model, drift table, quality gate.
    If the gate fails, the run stops and nothing changes.
 3. Open the pull request from the link in the summary (`retrain/<n>` → `main`). CI runs on it.
 4. Merge → **Deploy** runs automatically and tags the new version `production` in Azure ML.
 
-### Change a setting (e.g. the export threshold or number of trials)
+### Change a setting (e.g. the export threshold or number of trees)
 Edit `params.yaml`, then run **Retrain**. `dvc params diff` in the summary shows what changed.
 
 ### Roll back to an earlier version
