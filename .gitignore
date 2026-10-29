@@ -17,3 +17,7 @@ mlruns/
 
 # Written report (submitted separately, not part of the repo)
 reports/AML_Assignment2_Report.*
+submission/
+video/
+reports/.~*
+data/candidates/
